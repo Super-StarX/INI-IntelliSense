@@ -1,0 +1,90 @@
+{
+    "name": "INI Custom Theme",
+    "type": "dark",
+    "colors": {},
+    "tokenColors": [
+        // Section
+        {
+            "scope": "punctuation.section.bracket.ini",
+            "settings": {
+                "foreground": "#FFD700"
+            }
+        },
+        {
+            "scope": "entity.name.section.content.ini",
+            "settings": {
+                "foreground": "#fffab2" 
+            }
+        },
+        {
+            "scope": "entity.name.section.content.second.ini",
+            "settings": {
+                "foreground": "#fffab29a" 
+            }
+        },
+        // Key
+        {
+            "scope": "variable.assignment.key.part1.ini",
+            "settings": {
+                "foreground": "#50b0ff" // 深蓝
+            }
+        },
+        {
+            "scope": "variable.assignment.key.part2.ini",
+            "settings": {
+                "foreground": "#509cff" // 蓝
+            }
+        },
+        {
+            "scope": "variable.assignment.key.part3.ini",
+            "settings": {
+                "foreground": "#5079ff" // 浅蓝
+            }
+        },
+        // Equal
+        {
+            "scope": "keyword.operator.assignment.equals.ini",
+            "settings": {
+                "foreground": "#ffffff" 
+            }
+        },
+        // Value
+        {
+            "scope": "string.value.default.ini",
+            "settings": {
+                "foreground": "#82c7ff" // 淡紫色
+            }
+        },
+        {
+            "scope": "punctuation.value.comma.ini",
+            "settings": {
+                "foreground": "#ffd000" // 黄色
+            }
+        },
+        {
+            "scope": "string.quoted.double.ini",
+            "settings": {
+                "foreground": "#a76c00" // 灰色
+            }
+        },
+        {
+            "scope": "constant.character.value.ini",
+            "settings": {
+                "foreground": "#808080" // 灰色
+            }
+        },
+        {
+            "scope": "string.value.colon.ini",
+            "settings": {
+                "foreground": "#B0E0E6" // 更淡的蓝色
+            }
+        },
+        // Comment
+        {
+            "scope": "comment.line.ini",
+            "settings": {
+                "foreground": "#808080"
+            }
+        }
+    ]
+}

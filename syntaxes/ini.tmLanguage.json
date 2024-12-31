@@ -1,0 +1,74 @@
+{
+    "scopeName": "source.ini",
+    "patterns": [
+        { "include": "#comment" },
+        { "include": "#section" },
+        { "include": "#key-value" }
+    ],
+    "repository": {
+        "comment": {
+            "patterns": [
+                {
+                    "name": "comment.line.ini",
+                    "match": ";.*$"
+                }
+            ]
+        },
+        "section": {
+            "patterns": [
+                {
+                    "name": "entity.name.section.double-bracket.ini",
+                    "match": "^\\s*\\[([^\\]:]+)\\]:\\[([^\\]]+)\\](?:\\s*)(;.*)?$",
+                    "captures": {
+                        "0": { "name": "punctuation.section.bracket.ini" },
+                        "1": { "name": "entity.name.section.content.ini" },
+                        "2": { "name": "entity.name.section.content.second.ini" },
+                        "3": { "name": "comment.line.ini" }
+                    }
+                },
+                {
+                    "name": "entity.name.section.square-bracket.ini",
+                    "match": "^\\s*\\[([^\\]:]+)\\](?:\\s*)(;.*)?$",
+                    "captures": {
+                        "0": { "name": "punctuation.section.bracket.ini" },
+                        "1": { "name": "entity.name.section.content.ini" },
+                        "2": { "name": "comment.line.ini" }
+                    }
+                }
+            ]
+        },
+        "key-value": {
+            "patterns": [
+                {
+                    "name": "keyword.operator.assignment.equals.ini",
+                    "match": "="
+                },
+                {
+                    "name": "variable.assignment.key.ini",
+                    "match": "^\\s*([^=\\s.]+(?:\\.[^=\\s.]+)*)(?=\\s*(;.*|$))",
+                    "captures": {
+                        "1": { "name": "variable.assignment.key.part1.ini" }
+                    }
+                },
+                {
+                    "name": "variable.assignment.key.ini",
+                    "match": "^\\s*([^=\\s.]+)(?:\\.([^=\\s.]+))?(?:\\.([^=\\s.]+))?(\\.?.*)\\s*(?==)",
+                    "captures": {
+                        "1": { "name": "variable.assignment.key.part1.ini" },
+                        "2": { "name": "variable.assignment.key.part2.ini" },
+                        "3": { "name": "variable.assignment.key.part3.ini" },
+                        "4": { "name": "variable.assignment.key.part3.ini" }
+                    }
+                },
+                {
+                  "match": ",",
+                  "name": "punctuation.value.comma.ini"
+                },
+                {
+                  "match": "\"[^\"]*\"",
+                  "name": "string.quoted.double.ini"
+                }
+            ]
+        }
+    }
+}
