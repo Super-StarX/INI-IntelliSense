@@ -1,9 +1,28 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { INIManager } from './parser';
+import { INIValidatorExt } from './ini-validator-ext';
+
+// This method is called when your extension is activated
+// Your extension is activated the very first time the command is executed
+let diagnostics: vscode.DiagnosticCollection;
+
 
 export function activate(context: vscode.ExtensionContext) {
 	const iniManager = new INIManager();
+
+	// 注册诊断集合
+	diagnostics = vscode.languages.createDiagnosticCollection('ini');
+	const iniValidator = new INIValidatorExt(diagnostics);
+
+	//读取IniValidator的路径
+	iniValidator.updateIniValidatorPath();
+	//注册快速打开设置项的命令
+	const openSettingsCommand = iniValidator.registerCommand();
+	context.subscriptions.push(openSettingsCommand);
+	context.subscriptions.push(diagnostics);
+
+
 
 	// 获取插件根目录
 	const extensionRoot = __dirname;
@@ -25,15 +44,23 @@ export function activate(context: vscode.ExtensionContext) {
 		return;
 	}
 
-    // 注册诊断集合
-    const diagnostics = vscode.languages.createDiagnosticCollection('ini');
     context.subscriptions.push(diagnostics);
 
     // 更新诊断
-    const updateDiagnostics = (document: vscode.TextDocument) => {
+    const updateDiagnostics = async (document: vscode.TextDocument) => {
         if (document.languageId !== 'ini') {
             return;
         }
+
+		const fileSection = iniManager.findSection("Files");
+		const content = iniManager.parseDocument(fileSection?.content ?? "") as any;
+		const workspaceFolders = vscode.workspace.workspaceFolders;
+		if(!workspaceFolders){
+			throw new Error("No workspace folder found.");
+		}
+		const rulesFile = path.join(workspaceFolders[0].uri.fsPath, content.Files.rules);
+		// const artFile = content.Files.art;
+		await iniValidator.callIniValidator([rulesFile]);
 
         const problems: vscode.Diagnostic[] = [];
         const lines = document.getText().split(/\r?\n/);
@@ -244,6 +271,16 @@ export function activate(context: vscode.ExtensionContext) {
 
 				return result;
 			}
-		})
+		}),
 	);
 }
+
+
+
+
+
+
+// This method is called when your extension is deactivated
+export function deactivate() {
+	
+ }
