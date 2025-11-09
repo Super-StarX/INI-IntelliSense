@@ -83,6 +83,14 @@
     "configuration": {
       "title": "INI IntelliSense",
       "properties": {
+        "ra2-ini-intellisense.schemaFilePath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "INI 规则定义文件 (INICodingCheck.ini) 的绝对路径。如果未设置，将禁用基于规则的智能提示和诊断功能。"
+        },
         "ra2-ini-intellisense.exePath": {
           "type": [
             "string",

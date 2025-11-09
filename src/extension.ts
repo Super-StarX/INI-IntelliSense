@@ -3,6 +3,7 @@ import * as path from 'path';
 import { INIManager } from './parser';
 import { INIValidatorExt } from './ini-validator-ext';
 import { INIOutlineProvider } from './outline-provider';
+import { SchemaManager } from './schema-manager';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -15,6 +16,7 @@ let diagnostics: vscode.DiagnosticCollection;
 export async function activate(context: vscode.ExtensionContext) {
 	const iniManager = new INIManager();
 	const outlineProvider = new INIOutlineProvider(context, iniManager);
+	const schemaManager = new SchemaManager();
 
 	// 注册诊断集合
 	diagnostics = vscode.languages.createDiagnosticCollection('ini');
@@ -67,25 +69,56 @@ export async function activate(context: vscode.ExtensionContext) {
 	watcher.onDidChange(reindex);
 
 
-	// 获取插件根目录
-	const extensionRoot = __dirname;
-	const iniConfigPath = path.join(extensionRoot, 'data', 'INIConfigCheck.ini');
+	// 封装一个新的函数用于加载 Schema，使其可以在配置变更时重复调用
+	async function loadSchemaFromConfiguration() {
+		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
+		// 1. 优先使用用户明确指定的 schema 路径
+		let schemaPath = config.get<string | null>('schemaFilePath', null);
+		const isExplicitPath = !!schemaPath; // 标记路径是否为用户明确指定
 
-	// 检查字典文件是否存在
-	const fs = require('fs');
-	if (!fs.existsSync(iniConfigPath)) {
-		vscode.window.showErrorMessage(`字典文件未找到: ${iniConfigPath}`);
-		return;
+		// 2. 如果用户未指定, 则尝试从 INIValidator.exe 的路径推断
+		if (!schemaPath) {
+			const exePath = config.get<string | null>('exePath', null);
+			if (exePath) {
+				const exeDir = path.dirname(exePath);
+				schemaPath = path.join(exeDir, 'INICodingCheck.ini');
+			}
+		}
+
+		// 3. 如果最终找到了一个可用的路径, 则尝试加载
+		if (schemaPath) {
+			try {
+				const schemaUri = vscode.Uri.file(schemaPath);
+				const schemaContentBytes = await vscode.workspace.fs.readFile(schemaUri);
+				const schemaContent = Buffer.from(schemaContentBytes).toString('utf-8');
+				schemaManager.loadSchema(schemaContent);
+
+				// 仅在明确设置了路径并成功加载时才提示, 避免默认加载时打扰用户
+				if (isExplicitPath) {
+					 vscode.window.showInformationMessage('自定义 INI 规则文件加载成功!');
+				}
+			} catch (error) {
+				schemaManager.clearSchema();
+				// 仅当用户明确设置了路径但加载失败时, 才显示错误信息
+				if (isExplicitPath) {
+					vscode.window.showErrorMessage(`加载指定的 INI 规则文件失败: ${schemaPath}。`);
+				}
+			}
+		} else {
+			schemaManager.clearSchema(); // 如果两个路径都没有, 确保清空
+		}
 	}
 
-	// 加载字典文件
-	try {
-		iniManager.loadFile(iniConfigPath);
-		vscode.window.showInformationMessage('INI 智能提示插件已成功激活!');
-	} catch (error) {
-		vscode.window.showErrorMessage(`加载 INIConfigCheck.ini 失败: ${error}`);
-		return;
-	}
+	// 首次激活时加载一次
+	await loadSchemaFromConfiguration();
+
+	// 监听配置变更，当用户修改 schema 文件路径或 IV 路径时自动重新加载
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
+		if (e.affectsConfiguration('ra2-ini-intellisense.schemaFilePath') || e.affectsConfiguration('ra2-ini-intellisense.exePath')) {
+			await loadSchemaFromConfiguration();
+		}
+	}));
+
 
     /**
      * 更新单个文档的诊断信息 (包括内置格式检查和外部校验)
@@ -256,18 +289,77 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 		// 自动补全
 		vscode.languages.registerCompletionItemProvider('ini', {
-			provideCompletionItems(document, position, token, context) {
-				const suggestions: vscode.CompletionItem[] = [];
-				iniManager.files.forEach((fileData) => {
-					for (const [section, keys] of Object.entries(fileData.parsed || {})) {
-						for (const key of Object.keys(keys || {})) {
-							const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
-							item.detail = `来自 [${section}] 节`;
-							suggestions.push(item);
+			async provideCompletionItems(document, position, token, context) {
+				const line = document.lineAt(position.line);
+				const equalsIndex = line.text.indexOf('=');
+				const isKeyCompletion = equalsIndex === -1 || position.character <= equalsIndex;
+		
+				if (isKeyCompletion) {
+					// --- 键补全逻辑 ---
+					// 查找光标所在的节
+					let currentSectionName: string | null = null;
+					for (let i = position.line; i >= 0; i--) {
+						const lineText = document.lineAt(i).text.trim();
+						const match = lineText.match(/^\s*\[([^\]:]+)/);
+						if (match) {
+							currentSectionName = match[1].trim();
+							break;
 						}
 					}
-				});
-				return suggestions;
+			
+					if (!currentSectionName) return [];
+			
+					// 查找该节所属的注册表类型
+					const registryName = iniManager.findRegistryForSection(currentSectionName);
+					let keys = new Map<string, string>();
+			
+					if (registryName) {
+						const typeName = schemaManager.getTypeForRegistry(registryName);
+						if (typeName) keys = schemaManager.getAllKeysForType(typeName);
+					} else {
+						// 如果不是注册表类型, 则可能是全局节, 如 [General]
+						keys = schemaManager.getAllKeysForType(currentSectionName);
+					}
+			
+					if (keys.size === 0) return [];
+			
+					// 创建补全项, 并包装在 CompletionList 中以禁用默认补全
+					return new vscode.CompletionList(
+						Array.from(keys.entries()).map(([key, valueType]) => {
+							const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
+							item.detail = `(${valueType})`;
+							return item;
+						}),
+						false // false 表示我们的列表是完整的
+					);
+				} else {
+					// --- 值补全逻辑 ---
+					const suggestions = new Map<string, vscode.CompletionItem>();
+
+					// 1. 添加所有节名 (IDs) 作为候选
+					iniManager.getAllSectionNames().forEach(name => {
+						if (!suggestions.has(name)) {
+							suggestions.set(name, new vscode.CompletionItem(name, vscode.CompletionItemKind.Module));
+						}
+					});
+
+					// 2. 添加所有出现过的值作为候选
+					iniManager.getAllValues().forEach(value => {
+						if (!suggestions.has(value)) {
+							const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.Value);
+							// 对纯数字和布尔值进行特殊处理
+							if (/^-?\d+(\.\d+)?$/.test(value)) {
+								item.kind = vscode.CompletionItemKind.Constant;
+							} else if (['true', 'false', 'yes', 'no'].includes(value.toLowerCase())) {
+								item.kind = vscode.CompletionItemKind.Keyword;
+							}
+							suggestions.set(value, item);
+						}
+					});
+
+					// 返回包装在 CompletionList 中的建议项
+					return new vscode.CompletionList(Array.from(suggestions.values()), false);
+				}
 			}
 		}),
 		// 代码折叠

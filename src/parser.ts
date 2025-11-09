@@ -64,6 +64,69 @@ export class INIManager {
         return null;
     }
 
+    /**
+     * 在已索引的所有文件中查找一个节(section)属于哪个注册表(registry)
+     * @param sectionName 要查找的节名, 如 "GAWEAP"
+     * @returns 注册表名, 如 "BuildingTypes", 未找到则返回 null
+     */
+    public findRegistryForSection(sectionName: string): string | null {
+        for (const fileData of this.files.values()) {
+            if (!fileData.parsed) continue;
+    
+            for (const [registryName, sectionContent] of Object.entries(fileData.parsed)) {
+                // 注册表通常是一个节, 其值是ID列表
+                // 这里做一个更健壮的检查, 确保 sectionContent 是对象且非空
+                if (typeof sectionContent === 'object' && sectionContent !== null && Object.keys(sectionContent).length > 0) {
+                    // [BuildingTypes] 下面的键是序号 0, 1, 2... 值是 ID
+                    if (Object.values(sectionContent).includes(sectionName)) {
+                        return registryName;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 遍历所有已索引文件, 获取所有唯一的节名
+     * @returns 一个包含所有节名的 Set
+     */
+    public getAllSectionNames(): Set<string> {
+        const sectionNames = new Set<string>();
+        for (const fileData of this.files.values()) {
+            if (fileData.parsed) {
+                Object.keys(fileData.parsed).forEach(name => sectionNames.add(name));
+            }
+        }
+        return sectionNames;
+    }
+    
+    /**
+     * 遍历所有已索引文件, 获取所有唯一的非对象值
+     * @returns 一个包含所有值的 Set
+     */
+    public getAllValues(): Set<string> {
+        const values = new Set<string>();
+        for (const fileData of this.files.values()) {
+            if (fileData.parsed) {
+                for (const section of Object.values(fileData.parsed)) {
+                    if (typeof section === 'object' && section !== null) {
+                        for (const value of Object.values(section)) {
+                            // 只添加基础类型的值, 并处理逗号分隔的列表
+                            if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+                                String(value).split(',').forEach(part => {
+                                    const trimmedPart = part.trim();
+                                    if (trimmedPart) values.add(trimmedPart);
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return values;
+    }
+
     getSectionComment(content: string, sectionName: string) {
         const lines = content.split('\n');
         let sectionIndex = -1;
