@@ -3,239 +3,294 @@ import * as path from 'path';
 import { DiagnosticSeverity } from 'vscode';
 import * as cp from 'child_process';
 import * as os from 'os';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
+
+type ValidatorStatus = 'ready' | 'invalid' | 'unconfigured';
+const DOWNLOAD_URL = 'https://www.bilibili.com/opus/1022686010171981842';
+const CONFIG_KEY_EXE_PATH = 'ra2-ini-intellisense.exePath';
+const CONFIG_KEY_DONT_ASK = 'ra2-ini-intellisense.dontAskToConfigureValidator';
 
 export class INIValidatorExt {
 
-    constructor(diagnostics:vscode.DiagnosticCollection) {
-        this.diagnostics = diagnostics;
-    }
-
     private diagnostics: vscode.DiagnosticCollection;
+    private statusBarItem: vscode.StatusBarItem;
+    private status: ValidatorStatus = 'unconfigured';
+    private exePath: string | undefined;
 
-    public registerCommand(){
-        return vscode.commands.registerCommand('ra2-ini-intellisense.openSettings', () => {
-            vscode.commands.executeCommand(
-                'workbench.action.openSettings',
-                'ra2-ini-intellisense.exePath'
-            );
-        });
+    constructor(diagnostics: vscode.DiagnosticCollection) {
+        this.diagnostics = diagnostics;
+        this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+        // 设置点击状态栏图标时要执行的命令
+        this.statusBarItem.command = 'ra2-ini-intellisense.manageValidator';
     }
 
     /**
-     * 更新IniValidator的exe路径配置
-     * @returns 
+     * 初始化验证器,检查配置,设置监听器和状态栏
      */
-     public updateIniValidatorPath() {
-        const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
-        let exePath = config.get<string>('exePath');
-    
-        if (exePath && exePath.startsWith('~/')) {
-            exePath = path.join(os.homedir(), exePath.slice(2));
-        }
-        if (exePath === undefined) {
-            vscode.window.showErrorMessage('No executable path provided for INI Validator.','Open Settings').then(selection => {
-                if (selection === 'Open Settings') {
-                    vscode.commands.executeCommand(
-                        'ra2-ini-intellisense.openSettings'
-                    );
-                }
-            });
-            return;
-        }
-    
-        if (!this.validateExePath(exePath)) {
-            vscode.window.showErrorMessage('Invalid or non-executable path provided for INI Validator.','Open Settings').then((selection => {
-                if (selection === 'Open Settings') {
-                    vscode.commands.executeCommand(
-                        'ra2-ini-intellisense.openSettings'
-                    );
-                }
-            }));
-            return;
-        }
-    
-        // 验证路径
-        if (!this.validateExePath(exePath)) {
-            vscode.window.showErrorMessage(
-                'Invalid or non-executable path provided for INI Validator.',
-                'Open Settings'
-            ).then(selection => {
-                if (selection === 'Open Settings') {
-                    vscode.commands.executeCommand('ra2-ini-intellisense.openSettings');
-                }
-            });
-            return;
-        }else{
-            vscode.window.showInformationMessage('INIValidator registered successfully');
-        }
-    }
-    
-    private validateExePath(exePath: string): boolean {
-        try {
-            // 解析并标准化路径，确保跨平台兼容性
-            const resolvedPath = path.resolve(exePath);
-    
-            // 检查文件是否存在
-            const stats = fs.statSync(resolvedPath);
-    
-            // 确认它是一个文件而不是目录
-            if (!stats.isFile()) {
-                return false;
+    public async initialize(context: vscode.ExtensionContext) {
+        context.subscriptions.push(this.statusBarItem);
+
+        // 监听配置变更,以便实时更新状态
+        // 正确的代码
+        context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
+            if (e.affectsConfiguration(CONFIG_KEY_EXE_PATH) || e.affectsConfiguration(CONFIG_KEY_DONT_ASK)) {
+                await this.validatePath();
             }
-    
-            // 检查文件是否具有执行权限
-            // 注意：在 Windows 上，这个检查可能不完全可靠，因为 Windows 文件系统没有 Unix 那样的权限位。
-            // 但是，对于 .exe 文件，通常可以假设它们是可执行的。
-            if (process.platform !== 'win32') {
-                try {
-                    fs.accessSync(resolvedPath, fs.constants.X_OK);
-                } catch {
-                    return false;
-                }
-            }
-    
-            return true;
-    
-        } catch (err) {
-            // 如果遇到任何错误（如路径不存在或无法访问），则认为验证失败
-            return false;
-        }
+        }));
+
+        // 注册核心管理命令,点击状态栏时触发
+        context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.manageValidator', () => {
+            this.showManagementQuickPick();
+        }));
+
+        await this.validatePath();
+        this.promptIfUnconfigured();
     }
-    
-    
-    
-     public async callIniValidator(file:string[]) {
-        // 获取工作区根路径或当前打开文件的路径
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            vscode.window.showErrorMessage('No workspace folder found.');
-            return;
-        }
-    
-        // 构建 .exe 文件的完整路径
-        let config = vscode.workspace.getConfiguration('ini-validator-for-ra2');
-        let exePath = config.get<string>('exePath') || "";
-        // const exePath = path.join(__dirname, '..', 'resources', 'your-executable.exe'); // 根据实际情况调整路径
-        let exeDir = path.dirname(exePath);
-    
-        const options = {
-            cwd: exeDir, // 设置为 .exe 所需的工作目录
-            env: process.env // 使用当前进程的环境变量，或者自定义一个
+
+    /**
+     * 弹出文件对话框让用户选择.exe文件
+     */
+    private async promptToSelectExePath() {
+        const options: vscode.OpenDialogOptions = {
+            canSelectMany: false,
+            openLabel: '选择 INIValidator.exe',
+            // 根据操作系统类型,筛选.exe文件
+            filters: process.platform === 'win32' ? { '可执行文件': ['exe'], '所有文件': ['*'] } : undefined
         };
-    
-        var args = file;
-        let command = `"${exePath}" ${args.join(' ')}`;
-        // 调用外部 exe 文件
-        try{
-            cp.exec(command, options, (err, stdout, stderr) => {});
-            var resultPath = exeDir + "/Checker.json";
-            // const child = cp.spawn(exePath, args,options);
-            this.checkFileCompletion(resultPath);
-    
-            var json = this.readFileSync(resultPath);
-    
-            var results:[{filename:string,line:number,section:string,level:string,message:string}] = JSON.parse(json);
-            
-            if(results){
-                // 清理之前的诊断信息
-                this.diagnostics.clear();
-    
-                // 按照 fileName 分组
-                const groupedErrors = results.reduce((acc:any, error) => {
-                    const { filename } = error;
-                    if (!acc[filename]) {
-                        acc[filename] = [];
-                    }
-                    acc[filename].push(error);
-                    return acc;
-                }, {});
-    
-                 // 遍历分组后的错误信息并添加诊断信息
-                 for (const fileName in groupedErrors) {
-                    const errors:[{filename:string,line:number,section:string,level:string,message:string}] = groupedErrors[fileName];
-                    const arr = [];
-                    for (const error of errors) {
-                        const range = new vscode.Range(error.line, 0, error.line, Number.MAX_VALUE);
-                        const diagnostic = new vscode.Diagnostic(range, error.message, this.ToDiagnosticSeverity(error.level));
-                        arr.push(diagnostic);
-                    }
-    
-                    const files = await vscode.workspace.findFiles('**/' + fileName); // 查找所有 .ini 文件
-                    for (const file of files) {
-                        const document = await vscode.workspace.openTextDocument(file);
-                        this.diagnostics.set(document.uri, arr);
-                    }
-                }
-            }
-            
-        }catch(err){
-            vscode.window.showErrorMessage('Unexpected error when calling IniValidator.Please make sure [INIValidator]JsonLog=true is set in INICodingCheck.ini ');
-            console.error(err);
+
+        const fileUri = await vscode.window.showOpenDialog(options);
+        if (fileUri && fileUri[0]) {
+            const selectedPath = fileUri[0].fsPath;
+            const config = vscode.workspace.getConfiguration();
+            // 将用户选择的路径更新到全局配置中
+            await config.update(CONFIG_KEY_EXE_PATH, selectedPath, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`INI Validator 路径已设置为: ${selectedPath}`);
+            // **关键修复**: 手动更新配置后,立即重新验证路径并更新UI
+            await this.validatePath();
         }
     }
-    
-    private readFileSync(filePath: string): string {
+
+    /**
+     * 显示管理验证器的快速选择菜单
+     */
+    private async showManagementQuickPick() {
+        const items: vscode.QuickPickItem[] = [];
+
+        if (this.status === 'ready') {
+            items.push({ label: "$(file-code) 更改 INI Validator 路径...", description: "选择一个新的 INIValidator.exe 文件" });
+        } else {
+            items.push({ label: "$(file-code) 选择 INI Validator 路径...", description: "配置 INIValidator.exe 的路径" });
+        }
+
+        items.push({ label: "$(cloud-download) 前往下载 INI Validator", description: "在浏览器中打开下载页面" });
+        
+        const config = vscode.workspace.getConfiguration();
+        const dontAsk = config.get<boolean>(CONFIG_KEY_DONT_ASK);
+        if (!dontAsk) {
+            items.push({ label: "$(bell-slash) 不再提示(启动时)", description: "停止在启动时请求配置验证器" });
+        } else {
+            items.push({ label: "$(bell-dot) 启用启动时提示", description: "下次启动时再次提示配置验证器" });
+        }
+        
+        items.push({ label: "$(settings) 打开插件设置 (JSON)", description: "用于高级配置" });
+
+        const selection = await vscode.window.showQuickPick(items, {
+            placeHolder: '管理 INI Validator 集成'
+        });
+
+        if (!selection) return;
+
+        if (selection.label.includes('选择') || selection.label.includes('更改')) {
+            this.promptToSelectExePath();
+        } else if (selection.label.includes('下载')) {
+            vscode.env.openExternal(vscode.Uri.parse(DOWNLOAD_URL));
+        } else if (selection.label.includes('不再提示')) {
+            await config.update(CONFIG_KEY_DONT_ASK, true, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage("INI Validator 的启动提示已禁用。");
+        } else if (selection.label.includes('启用启动时提示')) {
+            await config.update(CONFIG_KEY_DONT_ASK, false, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage("INI Validator 的启动提示已启用。");
+        } else if (selection.label.includes('设置')) {
+             vscode.commands.executeCommand('workbench.action.openSettings', CONFIG_KEY_EXE_PATH);
+        }
+    }
+
+    /**
+     * 检查验证器路径是否有效,并更新内部状态和UI
+     */
+    private async validatePath() {
+        const config = vscode.workspace.getConfiguration();
+        let configuredPath = config.get<string>(CONFIG_KEY_EXE_PATH);
+
+        if (!configuredPath) {
+            this.updateStatus('unconfigured');
+            return;
+        }
+
+        if (configuredPath.startsWith('~/')) {
+            configuredPath = path.join(os.homedir(), configuredPath.slice(2));
+        }
+        
+        this.exePath = path.resolve(configuredPath);
+
         try {
-            const content = fs.readFileSync(filePath, 'utf8');
-            return content;
-        } catch (err) {
-            return '';
+            const stats = await fs.stat(this.exePath);
+            if (stats.isFile()) {
+                if (process.platform !== 'win32') {
+                    await fs.access(this.exePath, fs.constants.X_OK);
+                }
+                this.updateStatus('ready');
+            } else {
+                this.updateStatus('invalid', '路径指向的是一个目录, 而非文件。');
+            }
+        } catch (error) {
+            this.updateStatus('invalid', '路径不存在或无法访问。');
         }
     }
-    
-    private checkFileCompletion(outputPath: string) {
-    
-        // 定义一个函数来检查文件是否完成
-        function isFileComplete(filePath: string): Promise<boolean> {
-            return new Promise((resolve) => {
-                fs.stat(filePath, (err, stats) => {
-                    if (err) {
-                        resolve(false);
-                        return;
-                    }
-    
-                    // 如果文件存在，检查文件大小是否稳定（即不再变化）
-                    const fileSize = stats.size;
-                    setTimeout(() => {
-                        fs.stat(filePath, (err, updatedStats) => {
-                            if (err) {
-                                resolve(false);
-                                return;
-                            }
-                            resolve(updatedStats.size === fileSize);
-                        });
-                    }, 500); // 等待 500ms 再检查文件大小
-                });
-            });
+
+    /**
+     * 更新验证器状态并刷新状态栏UI
+     */
+    private updateStatus(status: ValidatorStatus, details: string = '') {
+        this.status = status;
+        switch (status) {
+            case 'ready':
+                this.statusBarItem.text = `$(check) INI Validator`;
+                this.statusBarItem.tooltip = `准备就绪: ${this.exePath}\n点击进行管理。`;
+                this.statusBarItem.backgroundColor = undefined;
+                break;
+            case 'invalid':
+                this.statusBarItem.text = `$(error) INI Validator`;
+                this.statusBarItem.tooltip = `错误: 配置的路径无效, 点击修复。\n详情: ${details}`;
+                this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+                break;
+            case 'unconfigured':
+                this.statusBarItem.text = `$(warning) INI Validator`;
+                this.statusBarItem.tooltip = '未配置, 点击进行设置。';
+                this.statusBarItem.backgroundColor = undefined;
+                break;
         }
+        this.statusBarItem.show();
+    }
     
-        // 轮询检查文件是否完成
-        async function pollFileCompletion() {
-            while (true) {
-                const isComplete = await isFileComplete(outputPath);
-                if (isComplete) {
-                    break;
-                }
-                await new Promise(resolve => setTimeout(resolve, 1000)); // 每隔 1 秒检查一次
+    /**
+     * 如果未配置验证器,则向用户发出提示
+     */
+    private async promptIfUnconfigured() {
+        if (this.status === 'unconfigured') {
+            const config = vscode.workspace.getConfiguration();
+            const dontAsk = config.get<boolean>(CONFIG_KEY_DONT_ASK);
+            
+            if (dontAsk) {
+                return;
+            }
+
+            const selection = await vscode.window.showInformationMessage(
+                '未配置 INI Validator, 是否设置以启用高级诊断功能?',
+                '配置路径',
+                '前往下载',
+                "不再询问"
+            );
+
+            if (selection === '配置路径') {
+                this.promptToSelectExePath();
+            } else if (selection === '前往下载') {
+                vscode.env.openExternal(vscode.Uri.parse(DOWNLOAD_URL));
+            } else if (selection === "不再询问") {
+                await config.update(CONFIG_KEY_DONT_ASK, true, vscode.ConfigurationTarget.Global);
             }
         }
-    
-        pollFileCompletion();
     }
-    
-    private ToDiagnosticSeverity(type: string): DiagnosticSeverity {
-        switch (type) {
-            case "错误":
-                return DiagnosticSeverity.Error;
-            case "warn":
-                return DiagnosticSeverity.Warning;
-            case "建议":
-                return DiagnosticSeverity.Information;
-            default:
-                return DiagnosticSeverity.Hint;
+
+    public isReady(): boolean {
+        return this.status === 'ready';
+    }
+
+    /**
+     * 异步调用外部验证器并处理其输出
+     */
+    public async runValidation(files: string[]) {
+        if (!this.isReady() || !this.exePath) {
+            return;
+        }
+
+        const exeDir = path.dirname(this.exePath);
+        const command = `"${this.exePath}" ${files.map(f => `"${f}"`).join(' ')}`;
+        
+        try {
+            await this.executeCommand(command, { cwd: exeDir });
+
+            const resultPath = path.join(exeDir, "Checker.json");
+            const resultsJson = await fs.readFile(resultPath, 'utf8');
+            const results = JSON.parse(resultsJson);
+
+            if (Array.isArray(results)) {
+                this.processValidationResults(results);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage('运行 INI Validator 失败, 请检查路径和文件权限。');
+            console.error('INI Validator 执行错误:', error);
         }
     }
-    
-    
+
+    /**
+     * 将验证结果转换为VS Code诊断信息
+     */
+    private async processValidationResults(results: any[]) {
+        this.diagnostics.clear();
+        const diagnosticsByFile: Map<string, vscode.Diagnostic[]> = new Map();
+
+        for (const error of results) {
+            if (!error.filename || error.line === undefined || !error.message) continue;
+
+            const diagnostic = new vscode.Diagnostic(
+                new vscode.Range(error.line, 0, error.line, Number.MAX_VALUE),
+                error.message,
+                this.toDiagnosticSeverity(error.level)
+            );
+            diagnostic.source = 'INI Validator';
+
+            if (!diagnosticsByFile.has(error.filename)) {
+                diagnosticsByFile.set(error.filename, []);
+            }
+            diagnosticsByFile.get(error.filename)?.push(diagnostic);
+        }
+
+        for (const [fileName, fileDiagnostics] of diagnosticsByFile.entries()) {
+            const fileUris = await vscode.workspace.findFiles('**/' + fileName, null, 1);
+            if (fileUris.length > 0) {
+                this.diagnostics.set(fileUris[0], fileDiagnostics);
+            }
+        }
+    }
+
+    /**
+     * 将错误级别字符串转换为VS Code的DiagnosticSeverity
+     */
+    private toDiagnosticSeverity(level: string): DiagnosticSeverity {
+        switch (level) {
+            case "错误": return DiagnosticSeverity.Error;
+            case "warn": return DiagnosticSeverity.Warning;
+            case "建议": return DiagnosticSeverity.Information;
+            default: return DiagnosticSeverity.Hint;
+        }
+    }
+
+    /**
+     * 将 child_process.exec 包装成 Promise
+     */
+    private executeCommand(command: string, options: cp.ExecOptions): Promise<string> {
+        return new Promise((resolve, reject) => {
+            cp.exec(command, options, (error, stdout, stderr) => {
+                if (error) {
+                    reject(error);
+                    return;
+                }
+                if (stderr) {
+                    console.warn('INI Validator 在 stderr 产生了输出:', stderr);
+                }
+                resolve(stdout);
+            });
+        });
+    }
 }

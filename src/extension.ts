@@ -14,12 +14,9 @@ export async function activate(context: vscode.ExtensionContext) {
 	// 注册诊断集合
 	diagnostics = vscode.languages.createDiagnosticCollection('ini');
 	const iniValidator = new INIValidatorExt(diagnostics);
+	// 初始化INIValidator,包括状态栏、配置监听和首次使用引导
+	await iniValidator.initialize(context);
 
-	//读取IniValidator的路径
-	iniValidator.updateIniValidatorPath();
-	//注册快速打开设置项的命令
-	const openSettingsCommand = iniValidator.registerCommand();
-	context.subscriptions.push(openSettingsCommand);
 	context.subscriptions.push(diagnostics);
 
 
@@ -37,10 +34,10 @@ export async function activate(context: vscode.ExtensionContext) {
 				const fileContent = Buffer.from(fileContentBytes).toString('utf8');
 				iniManager.loadFile(fileUri.fsPath, fileContent);
 			} catch (error) {
-				console.error(`Failed to load or parse INI file: ${fileUri.fsPath}`, error);
+				console.error(`加载或解析INI文件失败: ${fileUri.fsPath}`, error);
 			}
 		}
-		console.log(`INI IntelliSense: Indexed ${iniManager.files.size} INI files.`);
+		console.log(`INI IntelliSense: 已索引 ${iniManager.files.size} 个INI文件。`);
 	}
 
 	// 首次激活时立即索引
@@ -51,7 +48,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(watcher);
 	
 	const reindex = (uri: vscode.Uri) => {
-		console.log(`INI file changed: ${uri.fsPath}, re-indexing workspace...`);
+		console.log(`INI 文件变更: ${uri.fsPath}, 正在重新索引工作区...`);
 		indexWorkspaceFiles();
 	};
 
@@ -67,20 +64,18 @@ export async function activate(context: vscode.ExtensionContext) {
 	// 检查字典文件是否存在
 	const fs = require('fs');
 	if (!fs.existsSync(iniConfigPath)) {
-		vscode.window.showErrorMessage(`Dictionary file not found: ${iniConfigPath}`);
+		vscode.window.showErrorMessage(`字典文件未找到: ${iniConfigPath}`);
 		return;
 	}
 
 	// 加载字典文件
 	try {
 		iniManager.loadFile(iniConfigPath);
-		vscode.window.showInformationMessage('INI Helper Plugin Activated Successfully!');
+		vscode.window.showInformationMessage('INI 智能提示插件已成功激活!');
 	} catch (error) {
-		vscode.window.showErrorMessage(`Failed to load INIConfigCheck.ini: ${error}`);
+		vscode.window.showErrorMessage(`加载 INIConfigCheck.ini 失败: ${error}`);
 		return;
 	}
-
-    context.subscriptions.push(diagnostics);
 
     // 更新诊断
     const updateDiagnostics = async (document: vscode.TextDocument) => {
@@ -88,16 +83,29 @@ export async function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-		const fileSection = iniManager.findSection("Files");
-		const content = iniManager.parseDocument(fileSection?.content ?? "") as any;
-		const workspaceFolders = vscode.workspace.workspaceFolders;
-		if(!workspaceFolders){
-			throw new Error("No workspace folder found.");
+		// 只有当INIValidator可用时才执行外部校验
+		if (iniValidator.isReady()) {
+			const fileSection = iniManager.findSection("Files");
+			// 健壮性检查: 确保找到了 [Files] 节
+			if (fileSection) {
+				const content = iniManager.parseDocument(fileSection.content) as any;
+				const workspaceFolders = vscode.workspace.workspaceFolders;
+				
+				// 健壮性检查: 确保 rules 路径存在且为字符串
+				const rulesPath = content?.Files?.rules;
+				if (typeof rulesPath === 'string' && rulesPath.length > 0 && workspaceFolders) {
+					try {
+						const rulesFile = path.join(workspaceFolders[0].uri.fsPath, rulesPath);
+						await iniValidator.runValidation([rulesFile]); // 运行外部验证器
+					} catch (error) {
+						console.error("执行 INI Validator 时发生错误:", error);
+                        vscode.window.showErrorMessage("执行外部 INI 校验时出错, 详情请查看开发者控制台。");
+					}
+				}
+			}
 		}
-		const rulesFile = path.join(workspaceFolders[0].uri.fsPath, content.Files.rules);
-		// const artFile = content.Files.art;
-		await iniValidator.callIniValidator([rulesFile]);
 
+		// --- 内置的格式检查逻辑 (始终运行) ---
         const problems: vscode.Diagnostic[] = [];
         const lines = document.getText().split(/\r?\n/);
 
@@ -109,7 +117,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 problems.push(
                     new vscode.Diagnostic(
                         new vscode.Range(index, start, index, start + equalsLeft[0].length - 1),
-                        'Avoid spaces around "="',
+                        '请避免在 "=" 周围使用空格',
                         vscode.DiagnosticSeverity.Warning
                     )
                 );
@@ -122,51 +130,62 @@ export async function activate(context: vscode.ExtensionContext) {
                 problems.push(
                     new vscode.Diagnostic(
                         new vscode.Range(index, start, index, start + equalsRight[0].length - 1),
-                        'Avoid spaces around "="',
+                        '请避免在 "=" 周围使用空格',
                         vscode.DiagnosticSeverity.Warning
                     )
                 );
             }
 
             // 检查行以空格开头
-            if (/^\s+/.test(line)) {
-                problems.push(
-                    new vscode.Diagnostic(
-                        new vscode.Range(index, 0, index, line.match(/^\s+/)![0].length),
-                        'Line starts with unnecessary spaces',
-                        vscode.DiagnosticSeverity.Warning
-                    )
-                );
-            }
-
-            // 检查注释前未空一格
-            const commentLeftMatch = line.match(/(?<=\S);/);
-            if (commentLeftMatch) {
-                const start = line.indexOf(commentLeftMatch[0]);
-                problems.push(
-                    new vscode.Diagnostic(
-                        new vscode.Range(index, start, index, start + line.match(/;.+/)![0].length),
-                        'Missing space before the comment',
-                        vscode.DiagnosticSeverity.Warning
-                    )
-                );
-            }
-
-			// 检查注释后未空一格
-			const commentRightMatch = line.match(/;(?=\s)/);
-			if (commentRightMatch) {
-				const start = line.indexOf(commentRightMatch[0]);
+			const leadingSpaceMatch = line.match(/^\s+/);
+			if (leadingSpaceMatch) {
 				problems.push(
 					new vscode.Diagnostic(
-						new vscode.Range(index, start, index, start + line.match(/;.+/)![0].length),
-						'Missing space before the comment',
+						new vscode.Range(index, 0, index, leadingSpaceMatch[0].length),
+						'行首存在不必要的空格',
 						vscode.DiagnosticSeverity.Warning
 					)
 				);
 			}
-        });
 
-        diagnostics.set(document.uri, problems);
+            // 检查注释前未空一格
+			const commentLeftMatch = line.match(/(?<=\S);/);
+			if (commentLeftMatch) {
+				const fullCommentMatch = line.match(/;.*/); // 匹配分号及其后的所有内容
+				if (fullCommentMatch) {
+					const start = line.indexOf(fullCommentMatch[0]);
+					problems.push(
+						new vscode.Diagnostic(
+							new vscode.Range(index, start, index, start + fullCommentMatch[0].length),
+							'注释符号 ";" 前应有一个空格',
+							vscode.DiagnosticSeverity.Warning
+						)
+					);
+				}
+			}
+
+			// 检查注释后未空一格
+			const commentRightMatch = line.match(/;(?=\s)/);
+			if (commentRightMatch) {
+				const fullCommentMatch = line.match(/;.*/); // 匹配分号及其后的所有内容
+				if (fullCommentMatch) {
+					const start = line.indexOf(fullCommentMatch[0]);
+					problems.push(
+						new vscode.Diagnostic(
+							new vscode.Range(index, start, index, start + fullCommentMatch[0].length),
+							// 注意: 此处的规则和上一条似乎重复, 您可能想调整逻辑或提示信息
+							'注释符号 ";" 前应有一个空格',
+							vscode.DiagnosticSeverity.Warning
+						)
+					);
+				}
+			}
+        });
+		
+		// 合并内置诊断和外部诊断
+		const existingDiagnostics = diagnostics.get(document.uri) || [];
+		const externalDiagnostics = existingDiagnostics.filter(d => d.source === 'INI Validator');
+        diagnostics.set(document.uri, [...externalDiagnostics, ...problems]);
     };
 
     // 监听文档修改事件
@@ -223,7 +242,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				}
 
 				// 找不到任何定义,给出明确反馈
-				vscode.window.showInformationMessage(`Definition not found for '[${word}]'`);
+				vscode.window.showInformationMessage(`未找到节 '[${word}]' 的定义`);
 				return null;
 			}
 		}),
@@ -252,7 +271,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					for (const [section, keys] of Object.entries(fileData.parsed || {})) {
 						for (const key of Object.keys(keys || {})) {
 							const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
-							item.detail = `Key from section [${section}]`;
+							item.detail = `来自 [${section}] 节`;
 							suggestions.push(item);
 						}
 					}
@@ -318,11 +337,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 	);
 }
-
-
-
-
-
 
 // This method is called when your extension is deactivated
 export function deactivate() {

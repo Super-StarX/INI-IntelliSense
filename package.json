@@ -42,18 +42,32 @@
     ],
     "commands": [
       {
-        "command": "ini-validator-for-ra2.openSettings",
-        "title": "Open INI Validator Settings"
+        "command": "ra2-ini-intellisense.manageValidator",
+        "title": "管理 INI Validator",
+        "category": "INI IntelliSense"
       }
-    ], 
+    ],
     "configuration": {
-      "title": "ra2-ini-intellisense",
+      "title": "INI IntelliSense",
       "properties": {
         "ra2-ini-intellisense.exePath": {
-          "type": "string",
-          "default": "~/INIValidator.exe",
-          "description": "The absolute path to the INI Validator executable. If you use '~', it will be replaced with your home directory."
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "INIValidator.exe 可执行文件的绝对路径。使用'~'代表您的用户主目录。留空则禁用此功能。"
+        },
+        "ra2-ini-intellisense.dontAskToConfigureValidator": {
+          "type": "boolean",
+          "default": false,
+          "description": "如果为 true, 插件将不会在启动时询问您配置 INI Validator。"
         }
+      }
+    },
+    "configurationDefaults": {
+      "[ini]": {
+        "editor.definitionLinkOpensInPeek": false
       }
     }
   },
