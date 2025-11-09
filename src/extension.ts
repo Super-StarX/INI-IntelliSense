@@ -7,14 +7,17 @@ import { INIValidatorExt } from './ini-validator-ext';
 // Your extension is activated the very first time the command is executed
 let diagnostics: vscode.DiagnosticCollection;
 
-
+/**
+ * 扩展的主激活函数
+ * @param context 扩展的上下文, 用于管理订阅和状态
+ */
 export async function activate(context: vscode.ExtensionContext) {
 	const iniManager = new INIManager();
 
 	// 注册诊断集合
 	diagnostics = vscode.languages.createDiagnosticCollection('ini');
 	const iniValidator = new INIValidatorExt(diagnostics);
-	// 初始化INIValidator,包括状态栏、配置监听和首次使用引导
+	// 初始化INIValidator, 包括状态栏、配置监听和首次使用引导
 	await iniValidator.initialize(context);
 
 	context.subscriptions.push(diagnostics);
@@ -29,7 +32,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 		for (const fileUri of iniFiles) {
 			try {
-				// 使用 VS Code 的文件系统 API 读取文件,更安全
+				// 使用 VS Code 的文件系统 API 读取文件, 更安全
 				const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
 				const fileContent = Buffer.from(fileContentBytes).toString('utf8');
 				iniManager.loadFile(fileUri.fsPath, fileContent);
@@ -43,7 +46,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	// 首次激活时立即索引
 	await indexWorkspaceFiles();
 
-	// 监听文件变化,保持索引最新
+	// 监听文件变化, 保持索引最新
 	const watcher = vscode.workspace.createFileSystemWatcher('**/*.ini');
 	context.subscriptions.push(watcher);
 	
@@ -77,33 +80,19 @@ export async function activate(context: vscode.ExtensionContext) {
 		return;
 	}
 
-    // 更新诊断
+    /**
+     * 更新单个文档的诊断信息 (包括内置格式检查和外部校验)
+     * @param document 需要更新诊断的文本文档
+     */
     const updateDiagnostics = async (document: vscode.TextDocument) => {
         if (document.languageId !== 'ini') {
             return;
         }
 
-		// 只有当INIValidator可用时才执行外部校验
-		if (iniValidator.isReady()) {
-			const fileSection = iniManager.findSection("Files");
-			// 健壮性检查: 确保找到了 [Files] 节
-			if (fileSection) {
-				const content = iniManager.parseDocument(fileSection.content) as any;
-				const workspaceFolders = vscode.workspace.workspaceFolders;
-				
-				// 健壮性检查: 确保 rules 路径存在且为字符串
-				const rulesPath = content?.Files?.rules;
-				if (typeof rulesPath === 'string' && rulesPath.length > 0 && workspaceFolders) {
-					try {
-						const rulesFile = path.join(workspaceFolders[0].uri.fsPath, rulesPath);
-						await iniValidator.runValidation([rulesFile]); // 运行外部验证器
-					} catch (error) {
-						console.error("执行 INI Validator 时发生错误:", error);
-                        vscode.window.showErrorMessage("执行外部 INI 校验时出错, 详情请查看开发者控制台。");
-					}
-				}
-			}
-		}
+		// 自动校验功能可以在此触发, 但为避免过于频繁, 建议由用户手动触发
+		// if (iniValidator.isReady()) {
+		// 	await iniValidator.runValidation();
+		// }
 
 		// --- 内置的格式检查逻辑 (始终运行) ---
         const problems: vscode.Diagnostic[] = [];
@@ -182,7 +171,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
         });
 		
-		// 合并内置诊断和外部诊断
+		// 仅更新由本插件（非IV）产生的诊断信息
 		const existingDiagnostics = diagnostics.get(document.uri) || [];
 		const externalDiagnostics = existingDiagnostics.filter(d => d.source === 'INI Validator');
         diagnostics.set(document.uri, [...externalDiagnostics, ...problems]);
@@ -201,11 +190,12 @@ export async function activate(context: vscode.ExtensionContext) {
     // 初始调用
     vscode.workspace.textDocuments.forEach(updateDiagnostics);
 
-	// 注册跳转功能
+	// 注册语言特性提供者
 	context.subscriptions.push(
+		// 跳转到定义
 		vscode.languages.registerDefinitionProvider('ini', {
 			async provideDefinition(document, position, token) {
-				// 优化单词识别,允许字母、数字、下划线、点、中横线
+				// 优化单词识别, 允许字母、数字、下划线、点、中横线
 				const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
 				if (!wordRange) {
 					return null;
@@ -221,49 +211,43 @@ export async function activate(context: vscode.ExtensionContext) {
 				// 优先级 2: 在工作区其他已索引文件中查找
 				const locations: vscode.Location[] = [];
 				const currentFilePath = document.uri.fsPath;
-
 				for (const [filePath, data] of iniManager.files.entries()) {
 					if (filePath === currentFilePath) {
-						continue; // 跳过当前文件
+						continue;
 					}
-
 					const line = iniManager.findSectionInContent(data.content, word);
 					if (line !== null) {
 						locations.push(new vscode.Location(vscode.Uri.file(filePath), new vscode.Position(line, 0)));
 					}
 				}
 
-				// 处理查找结果
 				if (locations.length === 1) {
-					return locations[0]; // 只有一个结果,直接跳转
+					return locations[0];
 				}
 				if (locations.length > 1) {
-					return locations; // 多个结果,VS Code会弹窗让用户选择
+					return locations;
 				}
 
-				// 找不到任何定义,给出明确反馈
 				vscode.window.showInformationMessage(`未找到节 '[${word}]' 的定义`);
 				return null;
 			}
 		}),
-		// 鼠标悬浮时显示节注释
+		// 悬停提示
 		vscode.languages.registerHoverProvider({ language: 'ini' }, {
 			provideHover(document, position) {
 				const wordRange = document.getWordRangeAtPosition(position, /[^=\s]+/);
-				if (!wordRange) { return null; }
+				if (!wordRange) {
+					return null;
+				}
 
 				const word = document.getText(wordRange);
-
 				const sectionComment = iniManager.findSection(word);
 				if (sectionComment) {
 					return new vscode.Hover(`${iniManager.getSectionComment(document.getText(), word)}`);
 				}
-				else {
-					// 显示key在字典里的解释
-				}
 			}
 		}),
-		//输入预测功能
+		// 自动补全
 		vscode.languages.registerCompletionItemProvider('ini', {
 			provideCompletionItems(document, position, token, context) {
 				const suggestions: vscode.CompletionItem[] = [];
@@ -279,45 +263,30 @@ export async function activate(context: vscode.ExtensionContext) {
 				return suggestions;
 			}
 		}),
-		// 折叠功能
+		// 代码折叠
 		vscode.languages.registerFoldingRangeProvider({ language: 'ini' }, {
 			provideFoldingRanges(document, context, token) {
 				const result = [];
-
-				// 段
 				const sectionRegex = /^\s*\[([^\]]+)\]/;
-				// 键
 				const keyRegex = /^\s*([^\[;=]+)\s*=/;
-
 				let prevSecName = null;
 				let prevSecLineStart = 0;
 				let prevSecLineEnd = null;
-				// 段下面最后的键所在的行号
-				// (段只会折叠到其下面最后一个键所在行，后面的注释不会被折叠！)
 				let lastKeyLine = null;
 
 				for (let line = 0; line < document.lineCount; line++) {
 					const { text } = document.lineAt(line);
-
-					// 匹配段
 					const secMatched = text.match(sectionRegex);
 					if (secMatched) {
-
-						// 先闭合上一个段
 						if (prevSecName !== null) {
-							lastKeyLine = line - 1; // **L自用新增，折叠两个段之间的所有内容
+							lastKeyLine = line - 1;
 							prevSecLineEnd = lastKeyLine;
-							const prevSecFoldingRange = new vscode.FoldingRange(prevSecLineStart, prevSecLineEnd, vscode.FoldingRangeKind.Region);
-							result.push(prevSecFoldingRange);
+							result.push(new vscode.FoldingRange(prevSecLineStart, prevSecLineEnd, vscode.FoldingRangeKind.Region));
 						}
-
-						// 记录下新段的信息
 						prevSecName = secMatched[1];
 						prevSecLineStart = line;
 						continue;
 					}
-
-					// 匹配键（注意：键必须位于最近的段下面）
 					const keyMatched = text.match(keyRegex);
 					if ((prevSecName !== null) && keyMatched) {
 						lastKeyLine = line;
@@ -325,20 +294,19 @@ export async function activate(context: vscode.ExtensionContext) {
 					}
 				}
 
-				// 记得：闭合最后一个段！
 				if (prevSecName !== null) {
 					prevSecLineEnd = document.lineCount - 1;
-					const prevSecFoldingRange = new vscode.FoldingRange(prevSecLineStart, prevSecLineEnd, vscode.FoldingRangeKind.Region);
-					result.push(prevSecFoldingRange);
+					result.push(new vscode.FoldingRange(prevSecLineStart, prevSecLineEnd, vscode.FoldingRangeKind.Region));
 				}
-
 				return result;
 			}
 		}),
 	);
 }
 
-// This method is called when your extension is deactivated
+/**
+ * 扩展的停用函数, 用于清理资源
+ */
 export function deactivate() {
-	
- }
+	// 目前无需清理
+}
