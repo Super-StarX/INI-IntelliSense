@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { INIManager } from './parser';
 import { INIValidatorExt } from './ini-validator-ext';
+import { INIOutlineProvider } from './outline-provider';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -13,6 +14,7 @@ let diagnostics: vscode.DiagnosticCollection;
  */
 export async function activate(context: vscode.ExtensionContext) {
 	const iniManager = new INIManager();
+	const outlineProvider = new INIOutlineProvider(context, iniManager);
 
 	// 注册诊断集合
 	diagnostics = vscode.languages.createDiagnosticCollection('ini');
@@ -21,6 +23,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	await iniValidator.initialize(context);
 
 	context.subscriptions.push(diagnostics);
+
+	// 注册大纲视图
+	context.subscriptions.push(vscode.window.createTreeView('ini-outline', { treeDataProvider: outlineProvider }));
+    context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.refreshOutline', () => outlineProvider.refresh()));
 
 
 	// 建立工作区INI文件索引
@@ -41,6 +47,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		}
 		console.log(`INI IntelliSense: 已索引 ${iniManager.files.size} 个INI文件。`);
+		outlineProvider.refresh();
 	}
 
 	// 首次激活时立即索引

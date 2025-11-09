@@ -10,9 +10,37 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:ini-outline"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ini-intellisense-explorer",
+          "title": "INI Project",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ini-intellisense-explorer": [
+        {
+          "id": "ini-outline",
+          "name": "INI Project Outline"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "ra2-ini-intellisense.refreshOutline",
+          "when": "view == ini-outline",
+          "group": "navigation"
+        }
+      ]
+    },
     "languages": [
       {
         "id": "ini",
@@ -45,6 +73,11 @@
         "command": "ra2-ini-intellisense.manageValidator",
         "title": "管理 INI Validator",
         "category": "INI IntelliSense"
+      },
+      {
+        "command": "ra2-ini-intellisense.refreshOutline",
+        "title": "Refresh INI Outline",
+        "icon": "$(refresh)"
       }
     ],
     "configuration": {
