@@ -8,7 +8,7 @@ import { INIValidatorExt } from './ini-validator-ext';
 let diagnostics: vscode.DiagnosticCollection;
 
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
 	const iniManager = new INIManager();
 
 	// 注册诊断集合
@@ -22,6 +22,42 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(openSettingsCommand);
 	context.subscriptions.push(diagnostics);
 
+
+	// 建立工作区INI文件索引
+	async function indexWorkspaceFiles() {
+		// 使用 findFiles API 查找工作区内所有的 .ini 文件
+		const iniFiles = await vscode.workspace.findFiles('**/*.ini');
+		
+		iniManager.clear();
+
+		for (const fileUri of iniFiles) {
+			try {
+				// 使用 VS Code 的文件系统 API 读取文件,更安全
+				const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
+				const fileContent = Buffer.from(fileContentBytes).toString('utf8');
+				iniManager.loadFile(fileUri.fsPath, fileContent);
+			} catch (error) {
+				console.error(`Failed to load or parse INI file: ${fileUri.fsPath}`, error);
+			}
+		}
+		console.log(`INI IntelliSense: Indexed ${iniManager.files.size} INI files.`);
+	}
+
+	// 首次激活时立即索引
+	await indexWorkspaceFiles();
+
+	// 监听文件变化,保持索引最新
+	const watcher = vscode.workspace.createFileSystemWatcher('**/*.ini');
+	context.subscriptions.push(watcher);
+	
+	const reindex = (uri: vscode.Uri) => {
+		console.log(`INI file changed: ${uri.fsPath}, re-indexing workspace...`);
+		indexWorkspaceFiles();
+	};
+
+	watcher.onDidCreate(reindex);
+	watcher.onDidDelete(reindex);
+	watcher.onDidChange(reindex);
 
 
 	// 获取插件根目录
@@ -149,37 +185,45 @@ export function activate(context: vscode.ExtensionContext) {
 	// 注册跳转功能
 	context.subscriptions.push(
 		vscode.languages.registerDefinitionProvider('ini', {
-			provideDefinition(document, position, token) {
-				const wordRange = document.getWordRangeAtPosition(position);
-				if (!wordRange) { return null; }
-
+			async provideDefinition(document, position, token) {
+				// 优化单词识别,允许字母、数字、下划线、点、中横线
+				const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
+				if (!wordRange) {
+					return null;
+				}
 				const word = document.getText(wordRange);
 
-				// 在当前文件中查找 section
-				const currentFileContent = document.getText();
-				const currentSectionLine = iniManager.findSectionInContent(currentFileContent, word);
-				if (currentSectionLine !== null) {
-					return new vscode.Location(
-						document.uri,
-						new vscode.Position(currentSectionLine, 0)
-					);
+				// 优先级 1: 在当前文件中查找
+				const lineInCurrentFile = iniManager.findSectionInContent(document.getText(), word);
+				if (lineInCurrentFile !== null) {
+					return new vscode.Location(document.uri, new vscode.Position(lineInCurrentFile, 0));
 				}
 
-				// 在其他已加载的文件中查找 section
-				const found = iniManager.findSection(word);
-				if (found) {
-					const fileUri = vscode.Uri.file(found.file);
+				// 优先级 2: 在工作区其他已索引文件中查找
+				const locations: vscode.Location[] = [];
+				const currentFilePath = document.uri.fsPath;
 
-					// 计算目标 section 在目标文件中的行号
-					const targetLine = iniManager.findSectionInContent(found.content, word);
-					if (targetLine !== null) {
-						return new vscode.Location(
-							fileUri,
-							new vscode.Position(targetLine, 0)
-						);
+				for (const [filePath, data] of iniManager.files.entries()) {
+					if (filePath === currentFilePath) {
+						continue; // 跳过当前文件
+					}
+
+					const line = iniManager.findSectionInContent(data.content, word);
+					if (line !== null) {
+						locations.push(new vscode.Location(vscode.Uri.file(filePath), new vscode.Position(line, 0)));
 					}
 				}
 
+				// 处理查找结果
+				if (locations.length === 1) {
+					return locations[0]; // 只有一个结果,直接跳转
+				}
+				if (locations.length > 1) {
+					return locations; // 多个结果,VS Code会弹窗让用户选择
+				}
+
+				// 找不到任何定义,给出明确反馈
+				vscode.window.showInformationMessage(`Definition not found for '[${word}]'`);
 				return null;
 			}
 		}),

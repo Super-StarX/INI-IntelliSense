@@ -13,14 +13,27 @@ export interface INIFile {
 export class INIManager {
     public files: Map<string, { content: string; parsed: INIFile }> = new Map();
 
-    loadFile(filePath: string) {
-        if (!fs.existsSync(filePath)) {
-            throw new Error(`File not found: ${filePath}`);
-        }
+    clear() {
+        this.files.clear();
+    }
 
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const parsed = ini.parse(content);
-        this.files.set(filePath, { content, parsed });
+    loadFile(filePath: string, content?: string) {
+        try {
+            if (content === undefined) {
+                if (!fs.existsSync(filePath)) {
+                    throw new Error(`File not found: ${filePath}`);
+                }
+                content = fs.readFileSync(filePath, 'utf-8');
+            }
+            const parsed = ini.parse(content);
+            this.files.set(filePath, { content, parsed });
+        } catch (error) {
+            console.error(`Error parsing INI file ${filePath}:`, error);
+            // 即使解析失败,也存入原始内容,以便进行文本搜索
+            if (content !== undefined) {
+                this.files.set(filePath, { content, parsed: {} });
+            }
+        }
     }
 
     parseDocument(content: string): INIFile {
@@ -38,10 +51,13 @@ export class INIManager {
 
     findSectionInContent(content: string, sectionName: string): number | null {
         const lines = content.split('\n');
-        const sectionHeader = `[${sectionName}]`;
+        // 转义节名中的正则表达式特殊字符,使其可以安全地用于匹配
+        const escapedSectionName = sectionName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        // 构建一个更健壮的正则表达式,以匹配如 [section], [section]:[base], [section] ; comment 等情况
+        const sectionRegex = new RegExp(`^\\[${escapedSectionName}\\](?::\\[.*\\])?(?:\\s*;.*)?$`, 'i');
 
         for (let i = 0; i < lines.length; i++) {
-            if (lines[i].trim() === sectionHeader) {
+            if (sectionRegex.test(lines[i].trim())) {
                 return i;
             }
         }
