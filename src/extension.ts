@@ -221,6 +221,34 @@ export async function activate(context: vscode.ExtensionContext) {
 			} else {
 				outputChannel.appendLine(`\n❌ 警告: 在分析继承链后，未找到类型 '${typeName}' 的任何键。`);
 			}
+
+			// 新增: 分析当前行的键值类型
+			outputChannel.appendLine("\n--- 当前行分析 ---");
+			const lineText = document.lineAt(position.line).text;
+			outputChannel.appendLine(`当前行文本: "${lineText.trim()}"`);
+			const equalsIndex = lineText.indexOf('=');
+			if (equalsIndex !== -1) {
+				const currentKey = lineText.substring(0, equalsIndex).trim();
+				outputChannel.appendLine(`识别出的键: '${currentKey}'`);
+
+				let valueType: string | undefined;
+				// 不区分大小写查找
+				for (const [key, type] of allKeys.entries()) {
+					if (key.toLowerCase() === currentKey.toLowerCase()) {
+						valueType = type;
+						break;
+					}
+				}
+
+				if (valueType) {
+					outputChannel.appendLine(`✅ 在类型 '${typeName}' 中找到该键, 其值类型为: '${valueType}'`);
+				} else {
+					outputChannel.appendLine(`❌ 警告: 在类型 '${typeName}' 及其父类中未找到键 '${currentKey}'。`);
+				}
+			} else {
+				outputChannel.appendLine("当前行不是一个有效的键值对。");
+			}
+
 		} else {
 			outputChannel.appendLine(`\n❌ 错误: 无法确定要分析的类型。`);
 		}
@@ -403,21 +431,21 @@ export async function activate(context: vscode.ExtensionContext) {
 				const line = document.lineAt(position.line);
 				const equalsIndex = line.text.indexOf('=');
 				const isKeyCompletion = equalsIndex === -1 || position.character <= equalsIndex;
+
+				// 查找当前所在的节
+				let currentSectionName: string | null = null;
+				for (let i = position.line; i >= 0; i--) {
+					const lineText = document.lineAt(i).text.trim();
+					const match = lineText.match(/^\s*\[([^\]:]+)/);
+					if (match) {
+						currentSectionName = match[1].trim();
+						break;
+					}
+				}
+				if (!currentSectionName) return new vscode.CompletionList([], false);
 		
 				if (isKeyCompletion) {
 					// --- 键补全逻辑 ---
-					let currentSectionName: string | null = null;
-					for (let i = position.line; i >= 0; i--) {
-						const lineText = document.lineAt(i).text.trim();
-						const match = lineText.match(/^\s*\[([^\]:]+)/);
-						if (match) {
-							currentSectionName = match[1].trim();
-							break;
-						}
-					}
-			
-					if (!currentSectionName) return new vscode.CompletionList([], false);
-			
 					const registryName = iniManager.findRegistryForSection(currentSectionName);
 					let keys = new Map<string, string>();
 			
@@ -438,31 +466,135 @@ export async function activate(context: vscode.ExtensionContext) {
 					return new vscode.CompletionList(items, false);
 				} else {
 					// --- 值补全逻辑 ---
-					const suggestions = new Map<string, vscode.CompletionItem>();
+					const suggestions: vscode.CompletionItem[] = [];
 					const currentKey = line.text.substring(0, equalsIndex).trim();
 
+					// 1. 根据 Schema 确定值的类型
+					const registryName = iniManager.findRegistryForSection(currentSectionName);
+					let typeName = registryName ? schemaManager.getTypeForRegistry(registryName) : currentSectionName;
+					if (typeName) {
+						const allKeys = schemaManager.getAllKeysForType(typeName);
+						
+						let valueType: string | undefined;
+						// 不区分大小写查找
+						for (const [key, type] of allKeys.entries()) {
+							if (key.toLowerCase() === currentKey.toLowerCase()) {
+								valueType = type;
+								break;
+							}
+						}
+
+						if (valueType) {
+							// 2a. 如果是布尔值
+							if (valueType.toLowerCase() === 'bool') {
+								suggestions.push(new vscode.CompletionItem('yes', vscode.CompletionItemKind.Keyword));
+								suggestions.push(new vscode.CompletionItem('no', vscode.CompletionItemKind.Keyword));
+								return new vscode.CompletionList(suggestions, true);
+							}
+							// 2b. 如果是颜色
+							if (valueType === 'ColorStruct') {
+								const item = new vscode.CompletionItem('R,G,B', vscode.CompletionItemKind.Color);
+								item.insertText = '255,255,255';
+								item.documentation = '输入一个 RGB 颜色值, 例如: 255,0,0';
+								suggestions.push(item);
+							}
+							// 2c. 如果是 [Sections] 中定义的类型, 查找对应注册表
+							const targetRegistry = schemaManager.getRegistryForType(valueType);
+							if (targetRegistry) {
+								const ids = iniManager.getValuesForRegistry(targetRegistry);
+								ids.forEach(id => suggestions.push(new vscode.CompletionItem(id, vscode.CompletionItemKind.EnumMember)));
+								// 如果有基于schema的建议, 则认为是最终列表
+								if (suggestions.length > 0) return new vscode.CompletionList(suggestions, true);
+							}
+						}
+					}
+					
+					// 3. Fallback: 如果没有基于 Schema 的特定补全, 则提供通用补全
+					const fallbackSuggestions = new Map<string, vscode.CompletionItem>();
+					// 添加所有已知的节名作为候选
 					iniManager.getAllSectionNames().forEach(name => {
-						if (!suggestions.has(name)) {
-							suggestions.set(name, new vscode.CompletionItem(name, vscode.CompletionItemKind.Module));
+						if (!fallbackSuggestions.has(name)) {
+							fallbackSuggestions.set(name, new vscode.CompletionItem(name, vscode.CompletionItemKind.Module));
 						}
 					});
-
+					// 添加当前键所有用过的值
 					if (currentKey) {
 						iniManager.getValuesForKey(currentKey).forEach(value => {
-							if (!suggestions.has(value)) {
+							if (!fallbackSuggestions.has(value)) {
 								const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.Value);
 								if (/^-?\d+(\.\d+)?$/.test(value)) {
 									item.kind = vscode.CompletionItemKind.Constant;
 								} else if (['true', 'false', 'yes', 'no'].includes(value.toLowerCase())) {
 									item.kind = vscode.CompletionItemKind.Keyword;
 								}
-								suggestions.set(value, item);
+								fallbackSuggestions.set(value, item);
 							}
 						});
 					}
-
-					return new vscode.CompletionList(Array.from(suggestions.values()), false);
+					suggestions.push(...Array.from(fallbackSuggestions.values()));
+					
+					return new vscode.CompletionList(suggestions, false);
 				}
+			}
+		}),
+		// 颜色提供器
+		vscode.languages.registerColorProvider(selector, {
+			provideDocumentColors(document, token) {
+				const colors: vscode.ColorInformation[] = [];
+				for (let i = 0; i < document.lineCount; i++) {
+					const line = document.lineAt(i);
+					const equalsIndex = line.text.indexOf('=');
+					if (equalsIndex === -1) continue;
+
+					// 查找当前节
+					let currentSectionName: string | null = null;
+					for (let j = i; j >= 0; j--) {
+						const lineText = document.lineAt(j).text.trim();
+						const match = lineText.match(/^\s*\[([^\]:]+)/);
+						if (match) {
+							currentSectionName = match[1].trim();
+							break;
+						}
+					}
+					if (!currentSectionName) continue;
+					
+					const currentKey = line.text.substring(0, equalsIndex).trim();
+
+					// 查找值的类型
+					const registryName = iniManager.findRegistryForSection(currentSectionName);
+					let typeName = registryName ? schemaManager.getTypeForRegistry(registryName) : currentSectionName;
+					if (typeName) {
+						const allKeys = schemaManager.getAllKeysForType(typeName);
+						let valueType: string | undefined;
+						for (const [key, type] of allKeys.entries()) {
+							if (key.toLowerCase() === currentKey.toLowerCase()) {
+								valueType = type;
+								break;
+							}
+						}
+
+						if (valueType === 'ColorStruct') {
+							const valuePart = line.text.substring(equalsIndex + 1).split(';')[0].trim();
+							const rgb = valuePart.match(/^(\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})$/);
+							if (rgb) {
+								const r = parseInt(rgb[1], 10);
+								const g = parseInt(rgb[2], 10);
+								const b = parseInt(rgb[3], 10);
+								if (r <= 255 && g <= 255 && b <= 255) {
+									const range = new vscode.Range(i, equalsIndex + 1, i, line.text.length);
+									colors.push(new vscode.ColorInformation(range, new vscode.Color(r / 255, g / 255, b / 255, 1)));
+								}
+							}
+						}
+					}
+				}
+				return colors;
+			},
+			provideColorPresentations(color, context, token) {
+				const r = Math.round(color.red * 255);
+				const g = Math.round(color.green * 255);
+				const b = Math.round(color.blue * 255);
+				return [new vscode.ColorPresentation(`${r},${g},${b}`)];
 			}
 		}),
 		// 代码折叠

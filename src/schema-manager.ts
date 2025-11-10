@@ -15,6 +15,8 @@ interface SchemaDefinition {
 export class SchemaManager {
     // 映射注册表节名 (如 'BuildingTypes') 到其对应的 schema 类型名 (如 'BuildingType')。
     private registries = new Map<string, string>();
+    // 映射 schema 类型名 (如 'AnimType') 到其对应的注册表节名 (如 'Animations')。
+    private sections = new Map<string, string>();
     // 存储所有 schema 类型 (如 'BuildingType') 的详细定义 (键和基类)。
     private schemas = new Map<string, SchemaDefinition>();
     // 缓存已计算的类型键集合, 避免对同一类型的继承链进行重复遍历, 提高性能。
@@ -29,6 +31,7 @@ export class SchemaManager {
      */
     public clearSchema() {
         this.registries.clear();
+        this.sections.clear();
         this.schemas.clear();
         this.keyCache.clear();
         this.complexTypes.clear();
@@ -81,9 +84,12 @@ export class SchemaManager {
         const sectionsData = preParsed.get('Sections');
         if (sectionsData) {
             for (const line of sectionsData.contentLines) {
-                const typeName = line.split(';')[0].split(':')[0].trim();
-                if (typeName) {
-                    this.complexTypes.add(typeName);
+                const [key, value] = this.parseKeyValue(line);
+                if (key) {
+                    // key 是类型(如AnimType), value 是注册表(如Animations)
+                    if (value) this.sections.set(key, value);
+                    // 同时记录这是一个复杂类型
+                    this.complexTypes.add(key);
                 }
             }
         }
@@ -102,6 +108,9 @@ export class SchemaManager {
                     const [key, value] = this.parseKeyValue(line);
                     if (key && value) this.registries.set(key, value);
                 }
+            } else if (typeName === 'Sections') {
+                // 已在上面优先处理, 此处跳过
+                continue;
             } else { // 这是一个普通的类型定义节
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
@@ -118,7 +127,7 @@ export class SchemaManager {
             this.isLoaded = true;
         }
     }
-    
+
     /**
      * 一个辅助函数，用于从一行文本中解析出键和值。
      * @param line 一行文本
@@ -147,6 +156,15 @@ export class SchemaManager {
         return this.registries.get(registryName);
     }
     
+    /**
+     * 根据类型名获取其对应的注册表名 (来自[Sections])。
+     * @param typeName 类型名, 如 'AnimType'
+     * @returns 注册表名, 如 'Animations', 或 undefined
+     */
+    public getRegistryForType(typeName: string): string | undefined {
+        return this.sections.get(typeName);
+    }
+
     /**
      * 获取所有在 [Registries] 中定义的注册表名称。
      * @returns 包含所有注册表名的 Set

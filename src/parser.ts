@@ -263,6 +263,54 @@ export class INIManager {
     }
 
     /**
+     * 从所有文件中提取指定注册表下的所有ID。
+     * @param registryName 要查询的注册表名称, 如 "Animations"
+     * @returns 包含该注册表下所有ID的 Set
+     */
+    public getValuesForRegistry(registryName: string): Set<string> {
+        const values = new Set<string>();
+        if (!registryName) return values;
+
+        const escapedRegistryName = registryName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const sectionRegex = new RegExp(`^\\[${escapedRegistryName}\\]`, 'i');
+        const nextSectionRegex = /^\s*\[.+\]/;
+
+        for (const fileData of this.files.values()) {
+            const lines = fileData.content.split(/\r?\n/);
+            let inTargetRegistry = false;
+
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                if (sectionRegex.test(trimmedLine)) {
+                    inTargetRegistry = true;
+                    continue;
+                }
+
+                if (inTargetRegistry) {
+                    if (nextSectionRegex.test(trimmedLine)) {
+                        inTargetRegistry = false;
+                        continue; // 优化: 一旦离开目标节, 可跳过当前文件的剩余部分, 但为简单起见, 这里只跳过当前行
+                    }
+
+                    if (trimmedLine === '' || trimmedLine.startsWith(';')) {
+                        continue;
+                    }
+
+                    let value = trimmedLine.split(';')[0].trim();
+                    if (value) {
+                        const equalsIndex = value.indexOf('=');
+                        if (equalsIndex !== -1) {
+                            value = value.substring(equalsIndex + 1).trim();
+                        }
+                        if (value) values.add(value);
+                    }
+                }
+            }
+        }
+        return values;
+    }
+
+    /**
      * 获取一个节的注释（包括节上方或行内的注释）。
      * @param content 文件内容
      * @param sectionName 节名
