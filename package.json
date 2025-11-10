@@ -11,10 +11,33 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:ini-outline"
+    "onLanguage:ra2-ini"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "ra2-ini",
+        "aliases": [
+          "INI",
+          "ini"
+        ],
+        "extensions": [
+          ".ini"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ra2-ini",
+        "scopeName": "source.ini",
+        "path": "./syntaxes/ini.tmLanguage.json"
+      }
+    ],
+    "files.associations": {
+      "*.ini": "ra2-ini"
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -41,26 +64,6 @@
         }
       ]
     },
-    "languages": [
-      {
-        "id": "ini",
-        "aliases": [
-          "INI",
-          "ini"
-        ],
-        "extensions": [
-          ".ini"
-        ],
-        "configuration": "./language-configuration.json"
-      }
-    ],
-    "grammars": [
-      {
-        "language": "ini",
-        "scopeName": "source.ini",
-        "path": "./syntaxes/ini.tmLanguage.json"
-      }
-    ],
     "themes": [
       {
         "label": "INI Custom Theme",
@@ -76,21 +79,23 @@
       },
       {
         "command": "ra2-ini-intellisense.refreshOutline",
-        "title": "Refresh INI Outline",
+        "title": "刷新 INI 大纲",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "ra2-ini-intellisense.showDebugInfo",
+        "title": "INI: 显示当前上下文调试信息",
+        "category": "INI IntelliSense"
+      },
+      {
+        "command": "ra2-ini-intellisense.configureSchemaPath",
+        "title": "INI: 设置 Schema 文件路径",
+        "category": "INI IntelliSense"
       }
     ],
     "configuration": {
       "title": "INI IntelliSense",
       "properties": {
-        "ra2-ini-intellisense.schemaFilePath": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "INI 规则定义文件 (INICodingCheck.ini) 的绝对路径。如果未设置，将禁用基于规则的智能提示和诊断功能。"
-        },
         "ra2-ini-intellisense.exePath": {
           "type": [
             "string",
@@ -121,11 +126,19 @@
           "type": "boolean",
           "default": false,
           "description": "如果为 true, 插件将不会在启动时询问您配置 INI Validator。"
+        },
+        "ra2-ini-intellisense.schemaFilePath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "INI 规则定义文件 (INICodingCheck.ini) 的绝对路径。如果未设置，将禁用基于规则的智能提示和诊断功能。"
         }
       }
     },
     "configurationDefaults": {
-      "[ini]": {
+      "[ra2-ini]": {
         "editor.definitionLinkOpensInPeek": false
       }
     }

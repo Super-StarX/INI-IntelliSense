@@ -8,15 +8,23 @@ import { SchemaManager } from './schema-manager';
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 let diagnostics: vscode.DiagnosticCollection;
+const LANGUAGE_ID = 'ra2-ini';
 
 /**
  * 扩展的主激活函数
  * @param context 扩展的上下文, 用于管理订阅和状态
  */
 export async function activate(context: vscode.ExtensionContext) {
+	const outputChannel = vscode.window.createOutputChannel("INI IntelliSense");
 	const iniManager = new INIManager();
 	const outlineProvider = new INIOutlineProvider(context, iniManager);
 	const schemaManager = new SchemaManager();
+	iniManager.setSchemaManager(schemaManager); // 将 schemaManager 实例注入 iniManager
+
+	// 创建 Schema 状态栏
+	const schemaStatusbar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+	schemaStatusbar.command = 'ra2-ini-intellisense.configureSchemaPath';
+	context.subscriptions.push(schemaStatusbar);
 
 	// 注册诊断集合
 	diagnostics = vscode.languages.createDiagnosticCollection('ini');
@@ -30,48 +38,34 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(vscode.window.createTreeView('ini-outline', { treeDataProvider: outlineProvider }));
     context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.refreshOutline', () => outlineProvider.refresh()));
 
-
 	// 建立工作区INI文件索引
 	async function indexWorkspaceFiles() {
 		// 使用 findFiles API 查找工作区内所有的 .ini 文件
 		const iniFiles = await vscode.workspace.findFiles('**/*.ini');
 		
-		iniManager.clear();
+		await iniManager.indexFiles(iniFiles);
 
-		for (const fileUri of iniFiles) {
-			try {
-				// 使用 VS Code 的文件系统 API 读取文件, 更安全
-				const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
-				const fileContent = Buffer.from(fileContentBytes).toString('utf8');
-				iniManager.loadFile(fileUri.fsPath, fileContent);
-			} catch (error) {
-				console.error(`加载或解析INI文件失败: ${fileUri.fsPath}`, error);
-			}
-		}
 		console.log(`INI IntelliSense: 已索引 ${iniManager.files.size} 个INI文件。`);
 		outlineProvider.refresh();
 	}
 
-	// 首次激活时立即索引
-	await indexWorkspaceFiles();
-
-	// 监听文件变化, 保持索引最新
-	const watcher = vscode.workspace.createFileSystemWatcher('**/*.ini');
-	context.subscriptions.push(watcher);
-	
-	const reindex = (uri: vscode.Uri) => {
-		console.log(`INI 文件变更: ${uri.fsPath}, 正在重新索引工作区...`);
-		indexWorkspaceFiles();
-	};
-
-	watcher.onDidCreate(reindex);
-	watcher.onDidDelete(reindex);
-	watcher.onDidChange(reindex);
-
+	function updateSchemaStatus(loadedPath: string | null) {
+		if (loadedPath) {
+			schemaStatusbar.text = `$(check) INI Schema`;
+			schemaStatusbar.tooltip = `INI Schema Loaded: ${loadedPath}\nClick to change the schema file.`;
+			schemaStatusbar.backgroundColor = undefined;
+		} else {
+			schemaStatusbar.text = `$(warning) INI Schema`;
+			schemaStatusbar.tooltip = `INI Schema not loaded. Click to select your INICodingCheck.ini file.`;
+			schemaStatusbar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+		}
+		schemaStatusbar.show();
+	}
 
 	// 封装一个新的函数用于加载 Schema，使其可以在配置变更时重复调用
 	async function loadSchemaFromConfiguration() {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
+		let loadedPath: string | null = null;
 		// 1. 优先使用用户明确指定的 schema 路径
 		let schemaPath = config.get<string | null>('schemaFilePath', null);
 		const isExplicitPath = !!schemaPath; // 标记路径是否为用户明确指定
@@ -92,14 +86,13 @@ export async function activate(context: vscode.ExtensionContext) {
 				const schemaContentBytes = await vscode.workspace.fs.readFile(schemaUri);
 				const schemaContent = Buffer.from(schemaContentBytes).toString('utf-8');
 				schemaManager.loadSchema(schemaContent);
+				loadedPath = schemaPath;
 
-				// 仅在明确设置了路径并成功加载时才提示, 避免默认加载时打扰用户
 				if (isExplicitPath) {
-					 vscode.window.showInformationMessage('自定义 INI 规则文件加载成功!');
+					 vscode.window.showInformationMessage(`自定义 INI 规则文件加载成功: ${schemaPath}`);
 				}
 			} catch (error) {
 				schemaManager.clearSchema();
-				// 仅当用户明确设置了路径但加载失败时, 才显示错误信息
 				if (isExplicitPath) {
 					vscode.window.showErrorMessage(`加载指定的 INI 规则文件失败: ${schemaPath}。`);
 				}
@@ -107,7 +100,26 @@ export async function activate(context: vscode.ExtensionContext) {
 		} else {
 			schemaManager.clearSchema(); // 如果两个路径都没有, 确保清空
 		}
+		
+		updateSchemaStatus(loadedPath);
+		// Schema 加载后, 重新索引文件以建立正确的 ID -> 注册表映射
+		await indexWorkspaceFiles();
 	}
+	
+	// 注册设置 Schema 路径的命令
+	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.configureSchemaPath', async () => {
+		const options: vscode.OpenDialogOptions = {
+			canSelectMany: false,
+			openLabel: 'Select INICodingCheck.ini',
+			filters: { 'INI Files': ['ini'] }
+		};
+		const fileUri = await vscode.window.showOpenDialog(options);
+		if (fileUri && fileUri[0]) {
+			await vscode.workspace.getConfiguration('ra2-ini-intellisense').update('schemaFilePath', fileUri[0].fsPath, vscode.ConfigurationTarget.Global);
+			// The onDidChangeConfiguration listener will handle the reload
+		}
+	}));
+
 
 	// 首次激活时加载一次
 	await loadSchemaFromConfiguration();
@@ -119,13 +131,110 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 	}));
 
+	// 监听文件变化, 保持索引最新
+	const watcher = vscode.workspace.createFileSystemWatcher('**/*.ini');
+	context.subscriptions.push(watcher);
+	
+	const reindex = async (uri: vscode.Uri) => {
+		console.log(`INI 文件变更: ${uri.fsPath}, 正在重新索引工作区...`);
+		await indexWorkspaceFiles();
+	};
+
+	watcher.onDidCreate(reindex);
+	watcher.onDidDelete(reindex);
+	watcher.onDidChange(reindex);
+
+	// 注册调试命令
+	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.showDebugInfo', () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			vscode.window.showWarningMessage('请先打开一个 INI 文件再运行此命令。');
+			return;
+		}
+
+		const position = editor.selection.active;
+		const document = editor.document;
+		
+		outputChannel.clear();
+		outputChannel.appendLine("--- INI 智能感知调试信息 ---\n");
+
+		// 增强日志: 打印 Schema 加载情况
+		const idListRegistryNames = schemaManager.getIdListRegistryNames();
+		if (idListRegistryNames.size > 0) {
+			outputChannel.appendLine(`✅ Schema 加载完毕: 共找到 ${schemaManager.getRegistryNames().size} 个注册表。`);
+			outputChannel.appendLine(`✅ 已识别出 ${idListRegistryNames.size} 个用于索引的ID列表注册表:`);
+			outputChannel.appendLine(`   ${Array.from(idListRegistryNames).join(', ')}`);
+		} else {
+			outputChannel.appendLine(`❌ 警告: 未从Schema中识别出任何ID列表注册表，类型推断将失败。`);
+		}
+		outputChannel.appendLine(`✅ 索引完毕: 在所有文件中，共找到 ${iniManager.getRegistryMapSize()} 个唯一的已注册节ID。\n`);
+
+		outputChannel.appendLine(`--- 上下文信息 ---`);
+		outputChannel.appendLine(`文件: ${document.uri.fsPath}`);
+		outputChannel.appendLine(`光标位置: 行 ${position.line + 1}, 字符 ${position.character + 1}\n`);
+
+		// 查找当前节
+		let currentSectionName: string | null = null;
+		for (let i = position.line; i >= 0; i--) {
+			const lineText = document.lineAt(i).text.trim();
+			const match = lineText.match(/^\s*\[([^\]:]+)/);
+			if (match) {
+				currentSectionName = match[1].trim();
+				break;
+			}
+		}
+
+		if (!currentSectionName) {
+			outputChannel.appendLine("错误: 光标不在一个有效的节内。");
+			outputChannel.show();
+			return;
+		}
+		
+		outputChannel.appendLine(`✅ 当前节: [${currentSectionName}]`);
+
+		// 查找类型
+		const registryName = iniManager.findRegistryForSection(currentSectionName);
+		let typeName: string | undefined;
+
+		if (registryName) {
+			outputChannel.appendLine(`✅ 在注册表中找到: [${registryName}]`);
+			typeName = schemaManager.getTypeForRegistry(registryName);
+			if (typeName) {
+				outputChannel.appendLine(`✅ 推断类型为: '${typeName}'`);
+			} else {
+				outputChannel.appendLine(`❌ 错误: 注册表 [${registryName}] 未在Schema中映射到一个已知类型。`);
+			}
+		} else {
+			outputChannel.appendLine(`ℹ️ 信息: 未在任何注册表中找到该节，假定其为全局或字面类型。`);
+			typeName = currentSectionName;
+		}
+		
+		// 增强日志: 打印类型继承链和键信息
+		if (typeName) {
+			const debugLines = schemaManager.getDebugInfoForType(typeName);
+			outputChannel.appendLine("\n--- 类型继承与键值分析 ---");
+			debugLines.forEach(line => outputChannel.appendLine(line));
+
+			const allKeys = schemaManager.getAllKeysForType(typeName);
+			if (allKeys.size > 0) {
+				outputChannel.appendLine(`\n✅ 总可用键 (包含继承): ${allKeys.size} 个`);
+			} else {
+				outputChannel.appendLine(`\n❌ 警告: 在分析继承链后，未找到类型 '${typeName}' 的任何键。`);
+			}
+		} else {
+			outputChannel.appendLine(`\n❌ 错误: 无法确定要分析的类型。`);
+		}
+		
+		outputChannel.show();
+	}));
+
 
     /**
      * 更新单个文档的诊断信息 (包括内置格式检查和外部校验)
      * @param document 需要更新诊断的文本文档
      */
     const updateDiagnostics = async (document: vscode.TextDocument) => {
-        if (document.languageId !== 'ini') {
+        if (document.languageId !== LANGUAGE_ID) {
             return;
         }
 
@@ -230,10 +339,11 @@ export async function activate(context: vscode.ExtensionContext) {
     // 初始调用
     vscode.workspace.textDocuments.forEach(updateDiagnostics);
 
+	const selector = { language: LANGUAGE_ID };
 	// 注册语言特性提供者
 	context.subscriptions.push(
 		// 跳转到定义
-		vscode.languages.registerDefinitionProvider('ini', {
+		vscode.languages.registerDefinitionProvider(selector, {
 			async provideDefinition(document, position, token) {
 				// 优化单词识别, 允许字母、数字、下划线、点、中横线
 				const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
@@ -273,7 +383,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		}),
 		// 悬停提示
-		vscode.languages.registerHoverProvider({ language: 'ini' }, {
+		vscode.languages.registerHoverProvider(selector, {
 			provideHover(document, position) {
 				const wordRange = document.getWordRangeAtPosition(position, /[^=\s]+/);
 				if (!wordRange) {
@@ -288,7 +398,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		}),
 		// 自动补全
-		vscode.languages.registerCompletionItemProvider('ini', {
+		vscode.languages.registerCompletionItemProvider(selector, {
 			async provideCompletionItems(document, position, token, context) {
 				const line = document.lineAt(position.line);
 				const equalsIndex = line.text.indexOf('=');
@@ -296,7 +406,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		
 				if (isKeyCompletion) {
 					// --- 键补全逻辑 ---
-					// 查找光标所在的节
 					let currentSectionName: string | null = null;
 					for (let i = position.line; i >= 0; i--) {
 						const lineText = document.lineAt(i).text.trim();
@@ -307,9 +416,8 @@ export async function activate(context: vscode.ExtensionContext) {
 						}
 					}
 			
-					if (!currentSectionName) return [];
+					if (!currentSectionName) return new vscode.CompletionList([], false);
 			
-					// 查找该节所属的注册表类型
 					const registryName = iniManager.findRegistryForSection(currentSectionName);
 					let keys = new Map<string, string>();
 			
@@ -317,53 +425,48 @@ export async function activate(context: vscode.ExtensionContext) {
 						const typeName = schemaManager.getTypeForRegistry(registryName);
 						if (typeName) keys = schemaManager.getAllKeysForType(typeName);
 					} else {
-						// 如果不是注册表类型, 则可能是全局节, 如 [General]
 						keys = schemaManager.getAllKeysForType(currentSectionName);
 					}
 			
-					if (keys.size === 0) return [];
+					if (keys.size === 0) return new vscode.CompletionList([], false);
 			
-					// 创建补全项, 并包装在 CompletionList 中以禁用默认补全
-					return new vscode.CompletionList(
-						Array.from(keys.entries()).map(([key, valueType]) => {
-							const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
-							item.detail = `(${valueType})`;
-							return item;
-						}),
-						false // false 表示我们的列表是完整的
-					);
+					const items = Array.from(keys.entries()).map(([key, valueType]) => {
+						const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
+						item.detail = `(${valueType})`;
+						return item;
+					});
+					return new vscode.CompletionList(items, false);
 				} else {
 					// --- 值补全逻辑 ---
 					const suggestions = new Map<string, vscode.CompletionItem>();
+					const currentKey = line.text.substring(0, equalsIndex).trim();
 
-					// 1. 添加所有节名 (IDs) 作为候选
 					iniManager.getAllSectionNames().forEach(name => {
 						if (!suggestions.has(name)) {
 							suggestions.set(name, new vscode.CompletionItem(name, vscode.CompletionItemKind.Module));
 						}
 					});
 
-					// 2. 添加所有出现过的值作为候选
-					iniManager.getAllValues().forEach(value => {
-						if (!suggestions.has(value)) {
-							const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.Value);
-							// 对纯数字和布尔值进行特殊处理
-							if (/^-?\d+(\.\d+)?$/.test(value)) {
-								item.kind = vscode.CompletionItemKind.Constant;
-							} else if (['true', 'false', 'yes', 'no'].includes(value.toLowerCase())) {
-								item.kind = vscode.CompletionItemKind.Keyword;
+					if (currentKey) {
+						iniManager.getValuesForKey(currentKey).forEach(value => {
+							if (!suggestions.has(value)) {
+								const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.Value);
+								if (/^-?\d+(\.\d+)?$/.test(value)) {
+									item.kind = vscode.CompletionItemKind.Constant;
+								} else if (['true', 'false', 'yes', 'no'].includes(value.toLowerCase())) {
+									item.kind = vscode.CompletionItemKind.Keyword;
+								}
+								suggestions.set(value, item);
 							}
-							suggestions.set(value, item);
-						}
-					});
+						});
+					}
 
-					// 返回包装在 CompletionList 中的建议项
 					return new vscode.CompletionList(Array.from(suggestions.values()), false);
 				}
 			}
 		}),
 		// 代码折叠
-		vscode.languages.registerFoldingRangeProvider({ language: 'ini' }, {
+		vscode.languages.registerFoldingRangeProvider(selector, {
 			provideFoldingRanges(document, context, token) {
 				const result = [];
 				const sectionRegex = /^\s*\[([^\]]+)\]/;
