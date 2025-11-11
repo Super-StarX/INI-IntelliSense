@@ -111,6 +111,13 @@ export class SchemaManager {
         return this.schemas.has(typeName);
     }
     
+    /**
+     * 检查一个给定的名称是否是在 [Sections] 中定义的复杂对象类型。
+     * @param typeName 要检查的类型名称
+     */
+    public isComplexType(typeName: string): boolean {
+        return this.complexTypes.has(typeName);
+    }
 
     /**
      * 手动逐行加载并解析 schema 文件的内容。
