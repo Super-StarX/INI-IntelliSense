@@ -485,17 +485,77 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 		// 悬停提示
 		vscode.languages.registerHoverProvider(selector, {
-			provideHover(document, position) {
-				const wordRange = document.getWordRangeAtPosition(position, /[^=\s]+/);
+			provideHover(document, position, token) {
+				const line = document.lineAt(position.line);
+				const lineText = line.text;
+				const equalsIndex = lineText.indexOf('=');
+
+				// 优先处理: 悬停在键 (key) 上
+				if (equalsIndex !== -1) {
+					const keyPart = lineText.substring(0, equalsIndex).trim();
+					const keyStartIndex = lineText.indexOf(keyPart);
+					const keyEndIndex = keyStartIndex + keyPart.length;
+					const keyRange = new vscode.Range(position.line, keyStartIndex, position.line, keyEndIndex);
+
+					if (keyRange.contains(position)) {
+						// 1. 查找当前所在的节
+						let currentSectionName: string | null = null;
+						for (let i = position.line; i >= 0; i--) {
+							const searchLineText = document.lineAt(i).text.trim();
+							const match = searchLineText.match(/^\s*\[([^\]:]+)/);
+							if (match) {
+								currentSectionName = match[1].trim();
+								break;
+							}
+						}
+						if (!currentSectionName) return null;
+				
+						// 2. 根据节推断类型
+						const registryName = iniManager.findRegistryForSection(currentSectionName);
+						let typeName = registryName ? schemaManager.getTypeForRegistry(registryName) : currentSectionName;
+						
+						// 3. 从 Schema 中查找键的类型信息
+						if (typeName) {
+							const allKeys = schemaManager.getAllKeysForType(typeName);
+							let valueType: string | undefined;
+					
+							// 不区分大小写查找
+							for (const [k, v] of allKeys.entries()) {
+								if (k.toLowerCase() === keyPart.toLowerCase()) {
+									valueType = v;
+									break;
+								}
+							}
+					
+							if (valueType) {
+								const markdown = new vscode.MarkdownString();
+								markdown.appendCodeblock(`${keyPart}: ${valueType}`, 'ini');
+								markdown.appendMarkdown(`属于 **${typeName}** 类型。`);
+								return new vscode.Hover(markdown, keyRange);
+							}
+						}
+						// 即使在键上悬停, 如果 Schema 中没有信息, 也不显示任何内容
+						return null;
+					}
+				}
+
+				// 回退逻辑: 悬停在值 (value) 或其他标识符上, 显示其节注释
+				// 优化单词识别, 允许字母、数字、下划线、点、中横线
+				const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
 				if (!wordRange) {
 					return null;
 				}
 
 				const word = document.getText(wordRange);
-				const sectionComment = iniManager.findSection(word);
-				if (sectionComment) {
-					return new vscode.Hover(`${iniManager.getSectionComment(document.getText(), word)}`);
+				const sectionInfo = iniManager.findSection(word);
+				if (sectionInfo) {
+					const commentText = iniManager.getSectionComment(sectionInfo.content, word);
+					if (commentText) {
+						return new vscode.Hover(new vscode.MarkdownString(commentText), wordRange);
+					}
 				}
+				
+				return null;
 			}
 		}),
 		// 自动补全
