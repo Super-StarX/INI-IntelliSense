@@ -133,6 +133,19 @@
           "default": true,
           "description": "是否在节 (Section) 上方显示代码透镜 (CodeLens), 以展示其被引用的次数。"
         },
+        "ra2-ini-intellisense.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用或禁用所有内置的诊断检查。"
+        },
+        "ra2-ini-intellisense.diagnostics.disable": {
+          "type": "array",
+          "default": [],
+          "description": "一个包含要禁用的特定错误码的列表 (例如, [\"STYLE-101\", \"TYPE-201\"])。",
+          "items": {
+            "type": "string"
+          }
+        },
         "ra2-ini-intellisense.diagnostics.spaceBeforeEquals": {
           "type": "boolean",
           "default": true,

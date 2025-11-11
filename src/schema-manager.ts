@@ -104,6 +104,15 @@ export class SchemaManager {
     }
 
     /**
+     * 检查一个给定的名称是否是一个已知的 Schema 类型（即，在 INICodingCheck.ini 中有一个对应的 [...] 节）。
+     * @param typeName 要检查的类型名称
+     */
+    public isSchemaType(typeName: string): boolean {
+        return this.schemas.has(typeName);
+    }
+    
+
+    /**
      * 手动逐行加载并解析 schema 文件的内容。
      * 采用两遍扫描法，第一遍建立结构，第二遍填充内容。
      * @param content INICodingCheck.ini 文件的字符串内容

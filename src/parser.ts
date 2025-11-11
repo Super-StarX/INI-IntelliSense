@@ -228,6 +228,23 @@ export class INIManager {
         }
         return null;
     }
+    
+    /**
+     * 根据节名推断其类型。
+     * @param sectionName 要推断的节名
+     * @returns 推断出的类型名，如果无法推断则返回节名本身
+     */
+    public getTypeForSection(sectionName: string): string {
+        if (!this.schemaManager) return sectionName;
+
+        // 优先将节名本身视为类型。如果 schema 中不存在该类型定义，再尝试通过注册表推断。
+        if (this.schemaManager.isSchemaType(sectionName)) {
+            return sectionName;
+        }
+
+        const registryName = this.findRegistryForSection(sectionName);
+        return registryName ? this.schemaManager.getTypeForRegistry(registryName) ?? sectionName : sectionName;
+    }
 
     /**
      * 高效地从索引中查找一个节属于哪个注册表。
