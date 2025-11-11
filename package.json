@@ -64,13 +64,6 @@
         }
       ]
     },
-    "themes": [
-      {
-        "label": "INI Custom Theme",
-        "uiTheme": "vs-dark",
-        "path": "./themes/color-theme.json"
-      }
-    ],
     "commands": [
       {
         "command": "ra2-ini-intellisense.manageValidator",
@@ -167,6 +160,61 @@
           "type": "boolean",
           "default": true,
           "description": "是否检查并警告注释符号 (;) 后缺少空格的情况 (例如 ';comment' 而非 '; comment')。"
+        },
+        "ra2-ini-intellisense.colors.sectionBracket": {
+          "type": "string",
+          "default": "#FFD700",
+          "description": "节的方括号 `[]` 的颜色。"
+        },
+        "ra2-ini-intellisense.colors.sectionContent": {
+          "type": "string",
+          "default": "#fffab2",
+          "description": "节的内容 (如 `[Globals]`) 的颜色。"
+        },
+        "ra2-ini-intellisense.colors.sectionInherit": {
+          "type": "string",
+          "default": "#fffab29a",
+          "description": "节的继承部分 (如 `:[AbstractType]`) 的颜色。"
+        },
+        "ra2-ini-intellisense.colors.keyPart1": {
+          "type": "string",
+          "default": "#50b0ff",
+          "description": "键的第一部分 (如 `Key.sub.sub`) 的颜色。"
+        },
+        "ra2-ini-intellisense.colors.keyPart2": {
+          "type": "string",
+          "default": "#509cff",
+          "description": "键的第二部分 (如 `key.Sub.sub`) 的颜色。"
+        },
+        "ra2-ini-intellisense.colors.keyPart3": {
+          "type": "string",
+          "default": "#5079ff",
+          "description": "键的第三部分及之后 (如 `key.sub.Sub`) 的颜色。"
+        },
+        "ra2-ini-intellisense.colors.operator": {
+          "type": "string",
+          "default": "#ffffff",
+          "description": "等号 `=` 的颜色。"
+        },
+        "ra2-ini-intellisense.colors.value": {
+          "type": "string",
+          "default": "#82c7ff",
+          "description": "值的默认颜色。"
+        },
+        "ra2-ini-intellisense.colors.valueComma": {
+          "type": "string",
+          "default": "#ffd000",
+          "description": "值之间的逗号 `,` 的颜色。"
+        },
+        "ra2-ini-intellisense.colors.valueString": {
+          "type": "string",
+          "default": "#a76c00",
+          "description": "被引号包裹的字符串 `\"...\"` 的颜色。"
+        },
+        "ra2-ini-intellisense.colors.comment": {
+          "type": "string",
+          "default": "#808080",
+          "description": "注释 `;...` 的颜色。"
         }
       }
     },

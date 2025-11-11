@@ -4,6 +4,7 @@ import { INIManager } from './parser';
 import { INIValidatorExt } from './ini-validator-ext';
 import { INIOutlineProvider } from './outline-provider';
 import { SchemaManager } from './schema-manager';
+import { DynamicThemeManager } from './dynamic-theme';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -20,7 +21,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	const outlineProvider = new INIOutlineProvider(context, iniManager);
 	const schemaManager = new SchemaManager();
 	iniManager.setSchemaManager(schemaManager); // 将 schemaManager 实例注入 iniManager
+
 	const selector = { language: LANGUAGE_ID };
+
+	// 动态主题管理器
+	const themeManager = new DynamicThemeManager();
+	context.subscriptions.push(themeManager);
 
 	// 创建 Schema 状态栏
 	const schemaStatusbar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
@@ -176,6 +182,9 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 		if (e.affectsConfiguration('ra2-ini-intellisense.diagnostics')) {
 			vscode.workspace.textDocuments.forEach(doc => updateDiagnostics(doc, true));
+		}
+		if (e.affectsConfiguration('ra2-ini-intellisense.colors')) {
+			themeManager.reloadDecorations();
 		}
 	}));
 	updateCodeLensProvider();
@@ -430,7 +439,7 @@ export async function activate(context: vscode.ExtensionContext) {
     });
 
     // 初始调用
-    vscode.workspace.textDocuments.forEach(updateDiagnostics);
+    vscode.workspace.textDocuments.forEach(doc => updateDiagnostics(doc));
 
 	// 注册语言特性提供者
 	context.subscriptions.push(
