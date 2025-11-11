@@ -134,6 +134,39 @@
           ],
           "default": null,
           "description": "INI 规则定义文件 (INICodingCheck.ini) 的绝对路径。如果未设置，将禁用基于规则的智能提示和诊断功能。"
+        },
+        "ra2-ini-intellisense.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否在节 (Section) 上方显示代码透镜 (CodeLens), 以展示其被引用的次数。"
+        },
+        "ra2-ini-intellisense.diagnostics.spaceBeforeEquals": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否检查并警告等号 (=) 左侧的多余空格。"
+        },
+        "ra2-ini-intellisense.diagnostics.spaceAfterEquals": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否检查并警告等号 (=) 右侧的多余空格。"
+        },
+        "ra2-ini-intellisense.diagnostics.leadingWhitespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否检查并警告行首的多余空格。"
+        },
+        "ra2-ini-intellisense.diagnostics.spacesBeforeComment": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": 1,
+          "description": "注释符号 (;) 前应有的确切空格数。设为 null 或留空可禁用此项检查。"
+        },
+        "ra2-ini-intellisense.diagnostics.spaceAfterComment": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否检查并警告注释符号 (;) 后缺少空格的情况 (例如 ';comment' 而非 '; comment')。"
         }
       }
     },

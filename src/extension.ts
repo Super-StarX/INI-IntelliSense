@@ -20,6 +20,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	const outlineProvider = new INIOutlineProvider(context, iniManager);
 	const schemaManager = new SchemaManager();
 	iniManager.setSchemaManager(schemaManager); // 将 schemaManager 实例注入 iniManager
+	const selector = { language: LANGUAGE_ID };
 
 	// 创建 Schema 状态栏
 	const schemaStatusbar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
@@ -124,12 +125,60 @@ export async function activate(context: vscode.ExtensionContext) {
 	// 首次激活时加载一次
 	await loadSchemaFromConfiguration();
 
-	// 监听配置变更，当用户修改 schema 文件路径或 IV 路径时自动重新加载
+	// 监听配置变更，动态处理功能
+	let codeLensProvider: vscode.Disposable | undefined;
+	function updateCodeLensProvider() {
+		const isEnabled = vscode.workspace.getConfiguration('ra2-ini-intellisense').get('codeLens.enabled');
+		if (isEnabled) {
+			if (!codeLensProvider) {
+				codeLensProvider = vscode.languages.registerCodeLensProvider(selector, {
+					provideCodeLenses(document, token) {
+						const codeLenses: vscode.CodeLens[] = [];
+						for (let i = 0; i < document.lineCount; i++) {
+							const line = document.lineAt(i);
+							const sectionMatch = line.text.match(/^\s*\[([^\]:]+)\]/);
+							if (sectionMatch) {
+								const sectionName = sectionMatch[1];
+								const references = iniManager.findReferences(sectionName);
+								const range = new vscode.Range(i, 0, i, line.text.length);
+								
+								let title: string;
+								if (references.length > 0) {
+									title = `被引用 ${references.length} 次`;
+								} else {
+									title = '0 次引用 (可能未使用)';
+								}
+		
+								codeLenses.push(new vscode.CodeLens(range, {
+									title: title,
+									command: 'editor.action.findReferences', // 点击时触发查找引用
+									arguments: [document.uri, new vscode.Position(i, 1)]
+								}));
+							}
+						}
+						return codeLenses;
+					}
+				});
+				context.subscriptions.push(codeLensProvider);
+			}
+		} else {
+			codeLensProvider?.dispose();
+			codeLensProvider = undefined;
+		}
+	}
+
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
 		if (e.affectsConfiguration('ra2-ini-intellisense.schemaFilePath') || e.affectsConfiguration('ra2-ini-intellisense.exePath')) {
 			await loadSchemaFromConfiguration();
 		}
+		if (e.affectsConfiguration('ra2-ini-intellisense.codeLens.enabled')) {
+			updateCodeLensProvider();
+		}
+		if (e.affectsConfiguration('ra2-ini-intellisense.diagnostics')) {
+			vscode.workspace.textDocuments.forEach(doc => updateDiagnostics(doc, true));
+		}
 	}));
+	updateCodeLensProvider();
 
 	// 监听文件变化, 保持索引最新
 	const watcher = vscode.workspace.createFileSystemWatcher('**/*.ini');
@@ -260,16 +309,19 @@ export async function activate(context: vscode.ExtensionContext) {
     /**
      * 更新单个文档的诊断信息 (包括内置格式检查和外部校验)
      * @param document 需要更新诊断的文本文档
+	 * @param forceClear 是否强制清除旧的诊断信息
      */
-    const updateDiagnostics = async (document: vscode.TextDocument) => {
+    const updateDiagnostics = async (document: vscode.TextDocument, forceClear: boolean = false) => {
         if (document.languageId !== LANGUAGE_ID) {
             return;
         }
 
-		// 自动校验功能可以在此触发, 但为避免过于频繁, 建议由用户手动触发
-		// if (iniValidator.isReady()) {
-		// 	await iniValidator.runValidation();
-		// }
+		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense.diagnostics');
+		const checkSpaceBeforeEquals = config.get<boolean>('spaceBeforeEquals', true);
+		const checkSpaceAfterEquals = config.get<boolean>('spaceAfterEquals', true);
+		const checkLeadingWhitespace = config.get<boolean>('leadingWhitespace', true);
+		const spacesBeforeComment = config.get<number | null>('spacesBeforeComment', 1);
+		const checkSpaceAfterComment = config.get<boolean>('spaceAfterComment', true);
 
 		// --- 内置的格式检查逻辑 (始终运行) ---
         const problems: vscode.Diagnostic[] = [];
@@ -277,70 +329,79 @@ export async function activate(context: vscode.ExtensionContext) {
 
         lines.forEach((line, index) => {
             // 检查等号左侧空格
-            const equalsLeft = line.match(/(\s+)=/);
-            if (equalsLeft) {
-                const start = line.indexOf(equalsLeft[1]);
-                problems.push(
-                    new vscode.Diagnostic(
-                        new vscode.Range(index, start, index, start + equalsLeft[0].length - 1),
-                        '请避免在 "=" 周围使用空格',
-                        vscode.DiagnosticSeverity.Warning
-                    )
-                );
-            }
-
-            // 检查等号右侧空格
-            const equalsRight = line.match(/=(\s+)/);
-            if (equalsRight) {
-                const start = line.indexOf(equalsRight[1]);
-                problems.push(
-                    new vscode.Diagnostic(
-                        new vscode.Range(index, start, index, start + equalsRight[0].length - 1),
-                        '请避免在 "=" 周围使用空格',
-                        vscode.DiagnosticSeverity.Warning
-                    )
-                );
-            }
-
-            // 检查行以空格开头
-			const leadingSpaceMatch = line.match(/^\s+/);
-			if (leadingSpaceMatch) {
-				problems.push(
-					new vscode.Diagnostic(
-						new vscode.Range(index, 0, index, leadingSpaceMatch[0].length),
-						'行首存在不必要的空格',
-						vscode.DiagnosticSeverity.Warning
-					)
-				);
-			}
-
-            // 检查注释前未空一格
-			const commentLeftMatch = line.match(/(?<=\S);/);
-			if (commentLeftMatch) {
-				const fullCommentMatch = line.match(/;.*/); // 匹配分号及其后的所有内容
-				if (fullCommentMatch) {
-					const start = line.indexOf(fullCommentMatch[0]);
+			if (checkSpaceBeforeEquals) {
+				const equalsLeft = line.match(/(\s+)=/);
+				if (equalsLeft) {
+					const start = line.indexOf(equalsLeft[0]);
 					problems.push(
 						new vscode.Diagnostic(
-							new vscode.Range(index, start, index, start + fullCommentMatch[0].length),
-							'注释符号 ";" 前应有一个空格',
+							new vscode.Range(index, start, index, start + equalsLeft[1].length),
+							'请避免在 "=" 左侧使用空格',
 							vscode.DiagnosticSeverity.Warning
 						)
 					);
 				}
 			}
 
-			// 检查注释后未空一格
-			const commentRightMatch = line.match(/;(?=\s)/);
-			if (commentRightMatch) {
-				const fullCommentMatch = line.match(/;.*/); // 匹配分号及其后的所有内容
-				if (fullCommentMatch) {
-					const start = line.indexOf(fullCommentMatch[0]);
+            // 检查等号右侧空格
+			if (checkSpaceAfterEquals) {
+				const equalsRight = line.match(/=(\s+)/);
+				if (equalsRight) {
+					const start = line.indexOf(equalsRight[0]) + 1;
 					problems.push(
 						new vscode.Diagnostic(
-							new vscode.Range(index, start, index, start + fullCommentMatch[0].length),
-							// 注意: 此处的规则和上一条似乎重复, 您可能想调整逻辑或提示信息
-							'注释符号 ";" 前应有一个空格',
+							new vscode.Range(index, start, index, start + equalsRight[1].length),
+							'请避免在 "=" 右侧使用空格',
+							vscode.DiagnosticSeverity.Warning
+						)
+					);
+				}
+			}
+
+            // 检查行以空格开头
+			if (checkLeadingWhitespace) {
+				const leadingSpaceMatch = line.match(/^\s+/);
+				if (leadingSpaceMatch && line.trim().length > 0) { // 忽略空行
+					problems.push(
+						new vscode.Diagnostic(
+							new vscode.Range(index, 0, index, leadingSpaceMatch[0].length),
+							'行首存在不必要的空格',
+							vscode.DiagnosticSeverity.Warning
+						)
+					);
+				}
+			}
+
+			// 检查注释前空格数量
+			if (spacesBeforeComment !== null) {
+				const commentIndex = line.indexOf(';');
+				// 仅当注释前有非空白字符时才检查
+				if (commentIndex > 0 && line.substring(0, commentIndex).trim().length > 0) {
+					const precedingText = line.substring(0, commentIndex);
+					const trailingSpacesMatch = precedingText.match(/(\s+)$/);
+					const numSpaces = trailingSpacesMatch ? trailingSpacesMatch[1].length : 0;
+					
+					if (numSpaces !== spacesBeforeComment) {
+						problems.push(
+							new vscode.Diagnostic(
+								new vscode.Range(index, commentIndex - numSpaces, index, commentIndex),
+								`注释符号 ";" 前应有 ${spacesBeforeComment} 个空格`,
+								vscode.DiagnosticSeverity.Warning
+							)
+						);
+					}
+				}
+			}
+
+			// 检查注释后缺少空格
+			if (checkSpaceAfterComment) {
+				const commentRightMatch = line.match(/;\S/); // 匹配分号后紧跟非空白字符
+				if (commentRightMatch) {
+					const start = line.indexOf(commentRightMatch[0]);
+					problems.push(
+						new vscode.Diagnostic(
+							new vscode.Range(index, start, index, start + 2),
+							'注释符号 ";" 后应有一个空格',
 							vscode.DiagnosticSeverity.Warning
 						)
 					);
@@ -351,7 +412,11 @@ export async function activate(context: vscode.ExtensionContext) {
 		// 仅更新由本插件（非IV）产生的诊断信息
 		const existingDiagnostics = diagnostics.get(document.uri) || [];
 		const externalDiagnostics = existingDiagnostics.filter(d => d.source === 'INI Validator');
-        diagnostics.set(document.uri, [...externalDiagnostics, ...problems]);
+		if (forceClear) {
+			diagnostics.set(document.uri, [...externalDiagnostics, ...problems]);
+		} else {
+			diagnostics.set(document.uri, [...externalDiagnostics, ...problems]);
+		}
     };
 
     // 监听文档修改事件
@@ -367,7 +432,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // 初始调用
     vscode.workspace.textDocuments.forEach(updateDiagnostics);
 
-	const selector = { language: LANGUAGE_ID };
 	// 注册语言特性提供者
 	context.subscriptions.push(
 		// 跳转到定义
@@ -608,35 +672,6 @@ export async function activate(context: vscode.ExtensionContext) {
 					return iniManager.findReferences(sectionName);
 				}
 				return [];
-			}
-		}),
-		// 代码透镜提供器
-		vscode.languages.registerCodeLensProvider(selector, {
-			provideCodeLenses(document, token) {
-				const codeLenses: vscode.CodeLens[] = [];
-				for (let i = 0; i < document.lineCount; i++) {
-					const line = document.lineAt(i);
-					const sectionMatch = line.text.match(/^\s*\[([^\]:]+)\]/);
-					if (sectionMatch) {
-						const sectionName = sectionMatch[1];
-						const references = iniManager.findReferences(sectionName);
-						const range = new vscode.Range(i, 0, i, line.text.length);
-						
-						let title: string;
-						if (references.length > 0) {
-							title = `被引用 ${references.length} 次`;
-						} else {
-							title = '0 次引用 (可能未使用)';
-						}
-
-						codeLenses.push(new vscode.CodeLens(range, {
-							title: title,
-							command: 'editor.action.findReferences', // 点击时触发查找引用
-							arguments: [document.uri, new vscode.Position(i, 1)]
-						}));
-					}
-				}
-				return codeLenses;
 			}
 		}),
 		// 代码折叠
