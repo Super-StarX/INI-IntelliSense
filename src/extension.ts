@@ -597,6 +597,48 @@ export async function activate(context: vscode.ExtensionContext) {
 				return [new vscode.ColorPresentation(`${r},${g},${b}`)];
 			}
 		}),
+		// 查找引用提供器
+		vscode.languages.registerReferenceProvider(selector, {
+			provideReferences(document, position, context, token) {
+				const line = document.lineAt(position.line);
+				// 仅当在节头 `[...]` 内时触发
+				const sectionMatch = line.text.match(/^\s*\[([^\]:]+)\]/);
+				if (sectionMatch) {
+					const sectionName = sectionMatch[1];
+					return iniManager.findReferences(sectionName);
+				}
+				return [];
+			}
+		}),
+		// 代码透镜提供器
+		vscode.languages.registerCodeLensProvider(selector, {
+			provideCodeLenses(document, token) {
+				const codeLenses: vscode.CodeLens[] = [];
+				for (let i = 0; i < document.lineCount; i++) {
+					const line = document.lineAt(i);
+					const sectionMatch = line.text.match(/^\s*\[([^\]:]+)\]/);
+					if (sectionMatch) {
+						const sectionName = sectionMatch[1];
+						const references = iniManager.findReferences(sectionName);
+						const range = new vscode.Range(i, 0, i, line.text.length);
+						
+						let title: string;
+						if (references.length > 0) {
+							title = `被引用 ${references.length} 次`;
+						} else {
+							title = '0 次引用 (可能未使用)';
+						}
+
+						codeLenses.push(new vscode.CodeLens(range, {
+							title: title,
+							command: 'editor.action.findReferences', // 点击时触发查找引用
+							arguments: [document.uri, new vscode.Position(i, 1)]
+						}));
+					}
+				}
+				return codeLenses;
+			}
+		}),
 		// 代码折叠
 		vscode.languages.registerFoldingRangeProvider(selector, {
 			provideFoldingRanges(document, context, token) {

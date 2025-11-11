@@ -32,6 +32,8 @@ export class INIManager {
     private schemaManager?: SchemaManager;
     // 核心索引：一个从 节ID -> 注册表名 的快速查找映射。
     private sectionToRegistryMap: Map<string, string> = new Map();
+    // 反向索引: 一个从 值 -> 引用位置列表 的快速查找映射。
+    private valueReferences: Map<string, vscode.Location[]> = new Map();
     // 用于调试的详细注册表信息。
     private detailedRegistryInfo: Map<string, RegistryInfo> = new Map();
 
@@ -42,6 +44,7 @@ export class INIManager {
         this.files.clear();
         this.sectionToRegistryMap.clear();
         this.detailedRegistryInfo.clear();
+        this.valueReferences.clear();
     }
     
     /**
@@ -76,8 +79,9 @@ export class INIManager {
             }
         }
 
-        // 第二遍：使用原始内容构建节到注册表的索引。
+        // 第二遍：使用原始内容构建索引。
         this.buildRegistryIndex();
+        this.buildValueReferencesIndex();
     }
 
     /**
@@ -154,6 +158,42 @@ export class INIManager {
     }
 
     /**
+     * 构建一个从 值 -> 引用位置列表 的反向索引。
+     */
+    private buildValueReferencesIndex() {
+        const keyValueRegex = /^\s*[^;=\s][^=]*=\s*(.*)/;
+
+        for (const [filePath, fileData] of this.files.entries()) {
+            const lines = fileData.content.split(/\r?\n/);
+            const fileUri = vscode.Uri.file(filePath);
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const match = line.match(keyValueRegex);
+                if (match) {
+                    const valuePart = match[1].split(';')[0].trim();
+                    const values = valuePart.split(',');
+
+                    for (const value of values) {
+                        const trimmedValue = value.trim();
+                        if (trimmedValue) {
+                            const locations = this.valueReferences.get(trimmedValue) || [];
+                            
+                            // 计算精确的范围
+                            const valueStartIndex = line.indexOf(trimmedValue);
+                            if (valueStartIndex > -1) {
+                                const range = new vscode.Range(i, valueStartIndex, i, valueStartIndex + trimmedValue.length);
+                                locations.push(new vscode.Location(fileUri, range));
+                                this.valueReferences.set(trimmedValue, locations);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * 在所有文件中查找一个节的定义。
      * @param name 节名
      * @returns 包含文件路径和内容的对象，如果未找到则返回 null
@@ -193,6 +233,15 @@ export class INIManager {
      */
     public findRegistryForSection(sectionName: string): string | undefined {
         return this.sectionToRegistryMap.get(sectionName);
+    }
+
+    /**
+     * 高效地从反向索引中查找一个名称的所有引用位置。
+     * @param name 要查找的名称 (通常是一个节 ID)
+     * @returns 包含所有引用位置的 Location 数组
+     */
+    public findReferences(name: string): vscode.Location[] {
+        return this.valueReferences.get(name) || [];
     }
 
     /**
