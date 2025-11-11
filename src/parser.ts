@@ -199,8 +199,11 @@ export class INIManager {
      * @returns 包含文件路径和内容的对象，如果未找到则返回 null
      */
     findSection(name: string): { file: string; content: string } | null {
-        for (const [filePath, { content, parsed }] of this.files.entries()) {
-            if (parsed && parsed[name]) {
+        const escapedSectionName = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const sectionRegex = new RegExp(`^\\[${escapedSectionName}\\]`, 'im'); // 'i' for case-insensitive, 'm' for multi-line
+
+        for (const [filePath, { content }] of this.files.entries()) {
+            if (sectionRegex.test(content)) {
                 return { file: filePath, content };
             }
         }

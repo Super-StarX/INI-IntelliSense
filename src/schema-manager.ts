@@ -9,6 +9,46 @@ interface SchemaDefinition {
 }
 
 /**
+ * 描述一个数值范围限制。
+ */
+interface NumberLimit {
+    min: number;
+    max: number;
+}
+
+/**
+ * 描述一个字符串格式限制。
+ */
+interface StringLimit {
+    startWith?: string[];
+    endWith?: string[];
+    limitIn?: string[];
+    caseSensitive?: boolean;
+}
+
+/**
+ * 描述一个列表类型的定义。
+ */
+interface ListDefinition {
+    type: string;
+    minRange?: number;
+    maxRange?: number;
+}
+
+/**
+ * 定义值类型的分类, 用于校验分发。
+ */
+export enum ValueTypeCategory {
+    Section,
+    NumberLimit,
+    StringLimit,
+    List,
+    Primitive,
+    Unknown
+}
+
+
+/**
  * 管理和解析 INICodingCheck.ini 文件的核心类。
  * 负责加载Schema文件，并提供基于类型继承获取所有合法键的功能。
  */
@@ -23,8 +63,18 @@ export class SchemaManager {
     private keyCache = new Map<string, Map<string, string>>();
     // 标记Schema文件是否已成功加载并解析。
     private isLoaded: boolean = false;
-    // 存储在 [Sections] 中定义的复杂对象类型名称。
-    private complexTypes: Set<string> = new Set(); 
+
+    // --- 新增: 用于存储高级类型校验规则 ---
+    private numberLimits = new Map<string, NumberLimit>();
+    private stringLimits = new Map<string, StringLimit>();
+    private listDefinitions = new Map<string, ListDefinition>();
+
+    // --- 新增: 用于快速反向查找类型所属的分类 ---
+    private complexTypes: Set<string> = new Set();
+    private numberLimitTypes: Set<string> = new Set();
+    private stringLimitTypes: Set<string> = new Set();
+    private listTypes: Set<string> = new Set();
+    
 
     /**
      * 清空所有已加载的 schema 数据，重置状态。
@@ -34,8 +84,16 @@ export class SchemaManager {
         this.sections.clear();
         this.schemas.clear();
         this.keyCache.clear();
-        this.complexTypes.clear();
         this.isLoaded = false;
+        
+        this.numberLimits.clear();
+        this.stringLimits.clear();
+        this.listDefinitions.clear();
+
+        this.complexTypes.clear();
+        this.numberLimitTypes.clear();
+        this.stringLimitTypes.clear();
+        this.listTypes.clear();
     }
 
     /**
@@ -56,7 +114,6 @@ export class SchemaManager {
         const lines = content.split(/\r?\n/);
         
         // --- 第一遍扫描：识别所有节及其继承关系 ---
-        // 临时的、用于存储文件结构的原始数据
         const preParsed = new Map<string, { base: string | null, contentLines: string[] }>();
         let currentSection: { base: string | null, contentLines: string[] } | null = null;
 
@@ -64,14 +121,11 @@ export class SchemaManager {
             const trimmedLine = line.trim();
             if (trimmedLine === '' || trimmedLine.startsWith(';')) continue;
 
-            // 使用正则表达式匹配节头, 兼容 [TypeName] 和 [TypeName]:[BaseName] 两种格式
             const sectionMatch = trimmedLine.match(/^\[([^\]:]+)\](?::\[([^\]]+)\])?/);
 
             if (sectionMatch) {
                 const typeName = sectionMatch[1].trim();
-                // sectionMatch[2] 会在匹配到基类时捕获其名称, 否则为 undefined
                 const baseName = sectionMatch[2] ? sectionMatch[2].trim() : null;
-
                 currentSection = { base: baseName, contentLines: [] };
                 preParsed.set(typeName, currentSection);
             } else if (currentSection) {
@@ -80,28 +134,23 @@ export class SchemaManager {
         }
         
         // --- 第二遍扫描：处理预解析的数据，填充正式的数据结构 ---
-        // 优先处理 [Sections] 以便后续判断
-        const sectionsData = preParsed.get('Sections');
-        if (sectionsData) {
-            for (const line of sectionsData.contentLines) {
-                const [key, value] = this.parseKeyValue(line);
-                if (key) {
-                    // key 是类型(如AnimType), value 是注册表(如Animations)
-                    if (value) this.sections.set(key, value);
-                    // 同时记录这是一个复杂类型
-                    this.complexTypes.add(key);
-                }
+        const processCategory = (categoryName: string, typeSet: Set<string>) => {
+            const data = preParsed.get(categoryName);
+            if (data) {
+                data.contentLines.forEach(line => {
+                    const [key] = this.parseKeyValue(line);
+                    if (key) typeSet.add(key);
+                });
             }
-        }
-        
+        };
+
+        processCategory('Sections', this.complexTypes);
+        processCategory('NumberLimits', this.numberLimitTypes);
+        processCategory('Limits', this.stringLimitTypes);
+        processCategory('Lists', this.listTypes);
+
         // 遍历所有解析出的节，填充 registries 和 schemas
         for (const [typeName, data] of preParsed.entries()) {
-            // 创建或更新 schema 定义
-            const definition = this.schemas.get(typeName) ?? { keys: new Map(), base: null };
-            if (data.base) {
-                definition.base = data.base;
-            }
-            
             // 根据节名处理内容
             if (typeName === 'Registries') {
                 for (const line of data.contentLines) {
@@ -109,18 +158,56 @@ export class SchemaManager {
                     if (key && value) this.registries.set(key, value);
                 }
             } else if (typeName === 'Sections') {
-                // 已在上面优先处理, 此处跳过
-                continue;
+                for (const line of data.contentLines) {
+                    const [key, value] = this.parseKeyValue(line);
+                    if (key && value) this.sections.set(key, value);
+                }
+            } else if (this.numberLimitTypes.has(typeName)) {
+                const rangeLine = data.contentLines.find(l => l.trim().toLowerCase().startsWith('range'));
+                if (rangeLine) {
+                    const [, value] = this.parseKeyValue(rangeLine);
+                    const [min, max] = (value || "0,0").split(',').map(v => parseInt(v.trim(), 10));
+                    this.numberLimits.set(typeName, { min: min ?? -2147483648, max: max ?? 2147483647 });
+                }
+            } else if (this.stringLimitTypes.has(typeName)) {
+                const limit: StringLimit = {};
+                for (const line of data.contentLines) {
+                    const [key, value] = this.parseKeyValue(line);
+                    if (!key || value === null) continue;
+                    const lowerKey = key.toLowerCase();
+                    if (lowerKey === 'startwith') limit.startWith = value.split(',').map(v => v.trim());
+                    else if (lowerKey === 'endwith') limit.endWith = value.split(',').map(v => v.trim());
+                    else if (lowerKey === 'limitin') limit.limitIn = value.split(',').map(v => v.trim());
+                    else if (lowerKey === 'casesensitive') limit.caseSensitive = ['true', 'yes', '1'].includes(value.toLowerCase());
+                }
+                this.stringLimits.set(typeName, limit);
+            } else if (this.listTypes.has(typeName)) {
+                const definition: ListDefinition = { type: 'string' };
+                for (const line of data.contentLines) {
+                    const [key, value] = this.parseKeyValue(line);
+                    if (!key || value === null) continue;
+                    const lowerKey = key.toLowerCase();
+                    if (lowerKey === 'type') {
+                        definition.type = value;
+                    } else if (lowerKey === 'range') {
+                        const [min, max] = value.split(',').map(v => parseInt(v.trim(), 10));
+                        if (!isNaN(min)) definition.minRange = min;
+                        if (!isNaN(max)) definition.maxRange = max;
+                    }
+                }
+                this.listDefinitions.set(typeName, definition);
             } else { // 这是一个普通的类型定义节
+                const definition = this.schemas.get(typeName) ?? { keys: new Map(), base: null };
+                if (data.base) definition.base = data.base;
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
                     if (key) {
                         const keyName = key.split('(')[0].trim();
-                        definition.keys.set(keyName, value || ''); // 确保值不是undefined
+                        definition.keys.set(keyName, value || 'string'); // 确保值不是undefined, 默认为string
                     }
                 }
+                this.schemas.set(typeName, definition);
             }
-            this.schemas.set(typeName, definition);
         }
 
         if (this.registries.size > 0 || this.schemas.size > 0) {
@@ -146,6 +233,23 @@ export class SchemaManager {
             return [key, null]; // 对于没有等号的行，值为 null
         }
     }
+    
+    /**
+     * 根据类型名称反向查找其所属的分类。
+     * @param typeName 要查询的类型名称
+     */
+    public getValueTypeCategory(typeName: string): ValueTypeCategory {
+        if (this.complexTypes.has(typeName)) return ValueTypeCategory.Section;
+        if (this.numberLimitTypes.has(typeName)) return ValueTypeCategory.NumberLimit;
+        if (this.stringLimitTypes.has(typeName)) return ValueTypeCategory.StringLimit;
+        if (this.listTypes.has(typeName)) return ValueTypeCategory.List;
+        if (['int', 'float', 'string'].includes(typeName)) return ValueTypeCategory.Primitive;
+        return ValueTypeCategory.Unknown;
+    }
+
+    public getNumberLimit(typeName: string): NumberLimit | undefined { return this.numberLimits.get(typeName); }
+    public getStringLimit(typeName: string): StringLimit | undefined { return this.stringLimits.get(typeName); }
+    public getListDefinition(typeName: string): ListDefinition | undefined { return this.listDefinitions.get(typeName); }
 
     /**
      * 根据注册表名获取其对应的类型名。
