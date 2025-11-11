@@ -12,6 +12,14 @@ let diagnostics: vscode.DiagnosticCollection;
 const LANGUAGE_ID = 'ra2-ini';
 
 /**
+ * 定义一个验证错误的结构，包含消息和精确的范围。
+ */
+interface ValidationError {
+    message: string;
+    range: vscode.Range;
+}
+
+/**
  * 扩展的主激活函数
  * @param context 扩展的上下文, 用于管理订阅和状态
  */
@@ -417,11 +425,12 @@ export async function activate(context: vscode.ExtensionContext) {
 				}
 
 				if (valueType) {
-					const errorMessage = validateValueByType(valueString, valueType, schemaManager, iniManager);
-					if (errorMessage) {
-						const valueStartIndex = lineText.indexOf(valueString, lineText.indexOf('=') + 1);
-						const range = new vscode.Range(index, valueStartIndex, index, valueStartIndex + valueString.length);
-						problems.push(new vscode.Diagnostic(range, errorMessage, vscode.DiagnosticSeverity.Error));
+					const valueStartIndex = lineText.indexOf(valueString, lineText.indexOf('=') + 1);
+					const validationErrors = validateValue(valueString, valueType, schemaManager, iniManager, index, valueStartIndex);
+					if (validationErrors.length > 0) {
+						validationErrors.forEach(error => {
+							problems.push(new vscode.Diagnostic(error.range, error.message, vscode.DiagnosticSeverity.Error));
+						});
 					}
 				}
 			}
@@ -794,76 +803,93 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 /**
- * 验证一个值是否符合其 Schema 定义的类型规则。
+ * 验证一个值是否符合其 Schema 定义的类型规则，并返回带精确范围的错误。
  * @param value 要验证的字符串值
  * @param valueType 值的预期类型 (来自 Schema)
  * @param schemaManager Schema 管理器实例
  * @param iniManager INI 管理器实例
- * @returns 如果验证失败，返回错误信息字符串；如果成功，返回 null
+ * @param line 错误所在的行号
+ * @param valueStartIndex 完整值字符串在行中的起始位置
+ * @returns 一个包含所有验证错误的数组，如果验证成功，则返回空数组
  */
-function validateValueByType(value: string, valueType: string, schemaManager: SchemaManager, iniManager: INIManager): string | null {
+function validateValue(value: string, valueType: string, schemaManager: SchemaManager, iniManager: INIManager, line: number, valueStartIndex: number): ValidationError[] {
 	const category = schemaManager.getValueTypeCategory(valueType);
+	const fullRange = new vscode.Range(line, valueStartIndex, line, valueStartIndex + value.length);
+	
+	const createError = (message: string, range: vscode.Range = fullRange): ValidationError[] => [{ message, range }];
 
 	switch (category) {
 		case ValueTypeCategory.Primitive:
-			if (valueType === 'int' && !/^-?\d+$/.test(value)) return `值 "${value}" 不是一个有效的整数 (int)。`;
-			if (valueType === 'float' && isNaN(parseFloat(value))) return `值 "${value}" 不是一个有效的浮点数 (float)。`;
-			return null;
+			if (valueType === 'int' && !/^-?\d+$/.test(value)) return createError(`值 "${value}" 不是一个有效的整数 (int)。`);
+			if (valueType === 'float' && isNaN(parseFloat(value))) return createError(`值 "${value}" 不是一个有效的浮点数 (float)。`);
+			return [];
 
 		case ValueTypeCategory.NumberLimit: {
 			const limit = schemaManager.getNumberLimit(valueType);
-			if (!limit) return null; // 理论上不应发生
+			if (!limit) return [];
 			const num = parseInt(value, 10);
-			if (isNaN(num)) return `值 "${value}" 不是一个有效的整数。`;
+			if (isNaN(num)) return createError(`值 "${value}" 不是一个有效的整数。`);
 			if (num < limit.min || num > limit.max) {
-				return `值 ${value} 超出 ${valueType} 类型的范围 [${limit.min}, ${limit.max}]。`;
+				return createError(`值 ${value} 超出 ${valueType} 类型的范围 [${limit.min}, ${limit.max}]。`);
 			}
-			return null;
+			return [];
 		}
 
 		case ValueTypeCategory.StringLimit: {
 			const limit = schemaManager.getStringLimit(valueType);
-			if (!limit) return null;
+			if (!limit) return [];
 			const compareValue = limit.caseSensitive ? value : value.toLowerCase();
 
 			if (limit.limitIn) {
 				const allowedValues = limit.caseSensitive ? limit.limitIn : limit.limitIn.map(v => v.toLowerCase());
-				if (!allowedValues.includes(compareValue)) return `值 "${value}" 不是 ${valueType} 类型允许的值之一 (例如: ${limit.limitIn.slice(0, 3).join(', ')}...)。`;
+				if (!allowedValues.includes(compareValue)) return createError(`值 "${value}" 不是 ${valueType} 类型允许的值之一 (例如: ${limit.limitIn.slice(0, 3).join(', ')}...)。`);
 			}
 			if (limit.startWith) {
 				const prefixes = limit.caseSensitive ? limit.startWith : limit.startWith.map(v => v.toLowerCase());
-				if (!prefixes.some(p => compareValue.startsWith(p))) return `值 "${value}" 不符合 ${valueType} 类型的前缀要求。`;
+				if (!prefixes.some(p => compareValue.startsWith(p))) return createError(`值 "${value}" 不符合 ${valueType} 类型的前缀要求。`);
 			}
 			if (limit.endWith) {
 				const suffixes = limit.caseSensitive ? limit.endWith : limit.endWith.map(v => v.toLowerCase());
-				if (!suffixes.some(s => compareValue.endsWith(s))) return `值 "${value}" 不符合 ${valueType} 类型的后缀要求。`;
+				if (!suffixes.some(s => compareValue.endsWith(s))) return createError(`值 "${value}" 不符合 ${valueType} 类型的后缀要求。`);
 			}
-			return null;
+			return [];
 		}
 
 		case ValueTypeCategory.List: {
 			const definition = schemaManager.getListDefinition(valueType);
-			if (!definition) return null;
+			if (!definition) return [];
 			const items = value.split(',').map(item => item.trim());
 
-			if (definition.minRange !== undefined && items.length < definition.minRange) return `${valueType} 类型要求至少 ${definition.minRange} 个值，但只提供了 ${items.length} 个。`;
-			if (definition.maxRange !== undefined && items.length > definition.maxRange) return `${valueType} 类型要求最多 ${definition.maxRange} 个值，但提供了 ${items.length} 个。`;
+			if (definition.minRange !== undefined && items.length < definition.minRange) return createError(`${valueType} 类型要求至少 ${definition.minRange} 个值，但只提供了 ${items.length} 个。`);
+			if (definition.maxRange !== undefined && items.length > definition.maxRange) return createError(`${valueType} 类型要求最多 ${definition.maxRange} 个值，但提供了 ${items.length} 个。`);
 			
+			const allErrors: ValidationError[] = [];
+			let currentOffset = 0;
 			for (const item of items) {
-				const itemError = validateValueByType(item, definition.type, schemaManager, iniManager);
-				if (itemError) return `列表中的值 "${item}" 无效: ${itemError}`;
+				const itemStartIndexInValue = value.indexOf(item, currentOffset);
+				if (itemStartIndexInValue === -1) continue;
+
+				const itemErrors = validateValue(item, definition.type, schemaManager, iniManager, line, valueStartIndex + itemStartIndexInValue);
+				if (itemErrors.length > 0) {
+					// 为错误信息添加上下文，指出是列表中的哪一项出了问题
+					itemErrors.forEach(err => {
+						err.message = `列表中的值 "${item}" 无效: ${err.message}`;
+						allErrors.push(err);
+					});
+				}
+				currentOffset = itemStartIndexInValue + item.length;
 			}
-			return null;
+			return allErrors;
 		}
 
 		case ValueTypeCategory.Section:
-			if (!iniManager.findSection(value)) {
-				return `未在项目中找到节 '[${value}]' 的定义。`;
+			if (iniManager.findSection(value) === null) {
+				return createError(`未在项目中找到节 '[${value}]' 的定义。`);
 			}
-			return null;
+			return [];
 			
 		default:
-			return null;
+			return [];
 	}
 }
 

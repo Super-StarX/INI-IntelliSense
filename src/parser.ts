@@ -201,7 +201,7 @@ export class INIManager {
     findSection(name: string): { file: string; content: string } | null {
         const escapedSectionName = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
         const sectionRegex = new RegExp(`^\\[${escapedSectionName}\\]`, 'im'); // 'i' for case-insensitive, 'm' for multi-line
-
+    
         for (const [filePath, { content }] of this.files.entries()) {
             if (sectionRegex.test(content)) {
                 return { file: filePath, content };
