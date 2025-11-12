@@ -260,7 +260,7 @@ export class INIManager {
      * 在整个工作区中查找特定节内某个键的精确位置和行文本。
      * @param sectionName 要搜索的节名
      * @param keyName 要查找的键名
-     * @returns 包含位置和行文本的对象，如果未找到则返回 null 
+     * @returns 包含位置和行文本的对象，如果未找到则返回 null
      */
     public findKeyLocation(sectionName: string, keyName: string): { location: vscode.Location; lineText: string } | null {
         const sectionInfo = this.findSection(sectionName);
@@ -297,6 +297,34 @@ export class INIManager {
             }
         }
         return null;
+    }
+
+    /**
+     * 递归地向上查找一个键在继承链中的首次定义位置。
+     * @param sectionName 起始节名
+     * @param keyName 要查找的键名
+     * @returns 包含最终位置、行文本和定义节名的对象
+     */
+    public findKeyLocationRecursive(
+        sectionName: string, 
+        keyName: string
+    ): { location: vscode.Location | null; lineText: string | null, definer: string | null } {
+        
+        let currentSection: string | null = sectionName;
+        const visited = new Set<string>();
+
+        while (currentSection && !visited.has(currentSection)) {
+            visited.add(currentSection);
+
+            const result = this.findKeyLocation(currentSection, keyName);
+            if (result) {
+                return { ...result, definer: currentSection };
+            }
+
+            currentSection = this.getInheritance(currentSection) ?? null;
+        }
+
+        return { location: null, lineText: null, definer: null };
     }
 
     /**

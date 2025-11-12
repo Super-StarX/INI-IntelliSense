@@ -119,38 +119,31 @@ export class OverrideDecorator implements vscode.Disposable {
         const document = editor.document;
         const overrideDecorations: vscode.DecorationOptions[] = [];
         let currentSectionName: string | null = null;
-        let parentTypeName: string | null = null;
-        let parentKeys: Map<string, string> | null = null;
-
+        
         for (let i = 0; i < document.lineCount; i++) {
             const line = document.lineAt(i);
             const trimmedLine = line.text.trim();
 
             if (trimmedLine.startsWith('[')) {
-                const sectionMatch = trimmedLine.match(/^\s*\[([^\]:]+)(?::\[([^\]]+)\])?/);
+                const sectionMatch = trimmedLine.match(/^\s*\[([^\]:]+)/);
                 if (sectionMatch) {
                     currentSectionName = sectionMatch[1].trim();
-                    const parentName = sectionMatch[2] ? sectionMatch[2].trim() : this.iniManager.getInheritance(currentSectionName);
-                    
-                    if (parentName) {
-                        parentTypeName = this.iniManager.getTypeForSection(parentName);
-                        parentKeys = this.schemaManager.getAllKeysForType(parentTypeName);
-                    } else {
-                        parentTypeName = null;
-                        parentKeys = null;
-                    }
                 }
                 continue;
             }
 
-            if (parentKeys && parentTypeName) {
-                const kvMatch = line.text.match(/^\s*([^;=\s][^=]*?)\s*=/);
-                if (kvMatch) {
-                    const key = kvMatch[1].trim();
-                    if (parentKeys.has(key)) {
-                        const keyStartIndex = line.text.indexOf(key);
-                        const range = new vscode.Range(i, keyStartIndex, i, keyStartIndex + key.length);
-                        overrideDecorations.push({ range });
+            if (currentSectionName) {
+                const parentName = this.iniManager.getInheritance(currentSectionName);
+                if(parentName){
+                    const kvMatch = line.text.match(/^\s*([^;=\s][^=]*?)\s*=/);
+                    if (kvMatch) {
+                        const key = kvMatch[1].trim();
+                        const parentKeyInfo = this.iniManager.findKeyLocationRecursive(parentName, key);
+                        if (parentKeyInfo.location) {
+                            const keyStartIndex = line.text.indexOf(key);
+                            const range = new vscode.Range(i, keyStartIndex, i, keyStartIndex + key.length);
+                            overrideDecorations.push({ range });
+                        }
                     }
                 }
             }

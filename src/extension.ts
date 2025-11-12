@@ -426,92 +426,95 @@ export async function activate(context: vscode.ExtensionContext) {
 				const lineText = line.text;
 				const equalsIndex = lineText.indexOf('=');
 
-				if (equalsIndex !== -1) {
-					const keyPart = lineText.substring(0, equalsIndex).trim();
-					const keyRange = new vscode.Range(position.line, line.firstNonWhitespaceCharacterIndex, position.line, equalsIndex);
+				if (equalsIndex === -1) { // 如果不是键值对行，检查是否悬停在值上
+					const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
+					if (!wordRange) return null;
 
-					if (keyRange.contains(position)) {
-						let currentSectionName: string | null = null;
-						for (let i = position.line; i >= 0; i--) {
-							const searchLineText = document.lineAt(i).text.trim();
-							const match = searchLineText.match(/^\s*\[([^\]:]+)/);
-							if (match) {
-								currentSectionName = match[1].trim();
-								break;
-							}
+					const word = document.getText(wordRange);
+					const sectionInfo = iniManager.findSection(word);
+					if (sectionInfo) {
+						const commentText = iniManager.getSectionComment(sectionInfo.content, word);
+						if (commentText) {
+							return new vscode.Hover(new vscode.MarkdownString(commentText), wordRange);
 						}
-						if (!currentSectionName) return null;
-				
-						const typeName = iniManager.getTypeForSection(currentSectionName);
+					}
+					return null;
+				}
+
+				// --- 以下是处理键的悬停逻辑 ---
+				const keyPart = lineText.substring(0, equalsIndex).trim();
+				const keyRange = new vscode.Range(position.line, line.firstNonWhitespaceCharacterIndex, position.line, equalsIndex);
+
+				if (!keyRange.contains(position)) return null;
+
+				let currentSectionName: string | null = null;
+				for (let i = position.line; i >= 0; i--) {
+					const searchLineText = document.lineAt(i).text.trim();
+					const match = searchLineText.match(/^\s*\[([^\]:]+)/);
+					if (match) {
+						currentSectionName = match[1].trim();
+						break;
+					}
+				}
+				if (!currentSectionName) return null;
+		
+				const markdown = new vscode.MarkdownString("", true);
+				markdown.isTrusted = true;
+				markdown.supportThemeIcons = true;
+				let hasContent = false;
+
+				// --- 模块1: 查找并附加类型信息 ---
+				const typeName = iniManager.getTypeForSection(currentSectionName);
+				if (typeName) {
+					const allKeys = schemaManager.getAllKeysForType(typeName);
+					let valueType: string | undefined;
+					for (const [k, v] of allKeys.entries()) {
+						if (k.toLowerCase() === keyPart.toLowerCase()) {
+							valueType = v;
+							break;
+						}
+					}
+			
+					if (valueType) {
+						markdown.appendCodeblock(`${keyPart}: ${valueType}`, 'ini');
+						markdown.appendMarkdown(`属于 **${typeName}** 类型。`);
+						hasContent = true;
+					}
+				}
+
+				// --- 模块2: 查找并附加覆盖信息 (使用正确的递归实例查找) ---
+				const parentInstanceName = iniManager.getInheritance(currentSectionName);
+				if (parentInstanceName) {
+					const parentKeyInfo = iniManager.findKeyLocationRecursive(parentInstanceName, keyPart); 
+					
+					if (parentKeyInfo && parentKeyInfo.location && parentKeyInfo.lineText && parentKeyInfo.definer) {
+						if(hasContent) markdown.appendMarkdown('\n\n---\n\n');
+
+						const lineNum = parentKeyInfo.location.range.start.line + 1;
+						const fileName = path.basename(parentKeyInfo.location.uri.fsPath);
+
+						markdown.appendMarkdown(`此键覆盖了基类的值 **${fileName}**:L${lineNum}`);
 						
-						if (typeName) {
-							const allKeys = schemaManager.getAllKeysForType(typeName);
-							let valueType: string | undefined;
-					
-							for (const [k, v] of allKeys.entries()) {
-								if (k.toLowerCase() === keyPart.toLowerCase()) {
-									valueType = v;
-									break;
-								}
-							}
-					
-							if (valueType) {
-								const markdown = new vscode.MarkdownString("", true);
-								markdown.isTrusted = true;
-								markdown.supportThemeIcons = true;
+						const parentValueMatch = parentKeyInfo.lineText.match(/=\s*(.*)/);
+						const parentValueRaw = parentValueMatch ? parentValueMatch[1].trim() : '';
+						const parentValue = parentValueRaw.split(';')[0].trim();
 
-								markdown.appendCodeblock(`${keyPart}: ${valueType}`, 'ini');
-								markdown.appendMarkdown(`属于 **${typeName}** 类型。`);
+						markdown.appendCodeblock(`[${parentKeyInfo.definer}]\n${keyPart}=${parentValue || ''}`, 'ini');
 
-								// 检查并附加覆盖信息
-								const parentName = iniManager.getInheritance(currentSectionName);
-								if (parentName) {
-									
-									// 使用 iniManager 在实例数据中查找
-									const parentKeyInfo = iniManager.findKeyLocation(parentName, keyPart); 
-									if (parentKeyInfo) {
-										markdown.appendMarkdown('\n\n---\n\n');
-
-										const parentValueMatch = parentKeyInfo.lineText.match(/=\s*(.*)/);
-										// 清除可能存在的行内注释
-										const parentValueRaw = parentValueMatch ? parentValueMatch[1].trim() : '';
-										const parentValue = parentValueRaw.split(';')[0].trim();
-
-										const lineNum = parentKeyInfo.location.range.start.line + 1;
-
-										markdown.appendMarkdown(`此键覆盖了基类 \`[${parentName}]\` (L${lineNum}) 的值 \`${parentValue || ' '}\`。`);
-
-										const args = {
-											uri: parentKeyInfo.location.uri.toString(),
-											position: parentKeyInfo.location.range.start
-										};
-										const commandUri = vscode.Uri.parse(`command:ra2-ini-intellisense.jumpToOverride?${encodeURIComponent(JSON.stringify(args))}`);
-										markdown.appendMarkdown(`\n\n[$(go-to-file) 跳转到父类定义](${commandUri})`);
-									}
-								}
-
-								return new vscode.Hover(markdown, keyRange);
-							}
-						}
-						return null;
+						const args = {
+							uri: parentKeyInfo.location.uri.toString(),
+							position: parentKeyInfo.location.range.start
+						};
+						const commandUri = vscode.Uri.parse(`command:ra2-ini-intellisense.jumpToOverride?${encodeURIComponent(JSON.stringify(args))}`);
+						markdown.appendMarkdown(`[$(go-to-file) 跳转到父类定义](${commandUri})`);
+						hasContent = true;
 					}
 				}
 
-				const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
-				if (!wordRange) return null;
-
-				const word = document.getText(wordRange);
-				const sectionInfo = iniManager.findSection(word);
-				if (sectionInfo) {
-					const commentText = iniManager.getSectionComment(sectionInfo.content, word);
-					if (commentText) {
-						return new vscode.Hover(new vscode.MarkdownString(commentText), wordRange);
-					}
-				}
-				
-				return null;
+				return hasContent ? new vscode.Hover(markdown, keyRange) : null;
 			}
 		}),
+
 		// 自动补全
 		vscode.languages.registerCompletionItemProvider(selector, {
 			async provideCompletionItems(document, position, token, context) {

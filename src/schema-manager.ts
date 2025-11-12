@@ -126,6 +126,14 @@ export class SchemaManager {
     }
 
     /**
+     * 获取一个类型的 Schema 定义。
+     * @param typeName 类型名称
+     */
+    public getSchema(typeName: string): SchemaDefinition | undefined {
+        return this.schemas.get(typeName);
+    }
+
+    /**
      * 手动逐行加载并解析 schema 文件的内容。
      * 采用两遍扫描法，第一遍建立结构，第二遍填充内容。
      * @param content INICodingCheck.ini 文件的字符串内容
@@ -345,19 +353,15 @@ export class SchemaManager {
     }
 
     /**
-     * 在 Schema 文件中查找特定类型内某个键的精确位置。
-     * @param typeName 要搜索的类型名
+     * 沿着类型继承链向上查找，确定是哪个基类首次定义了给定的键。
+     * @param typeName 起始类型名
      * @param keyName 要查找的键名
-     * @returns 键的位置信息，如果未找到则返回 null
+     * @returns 返回包含定义者类型名和其位置信息的对象
      */
-    public findKeyLocationInSchema(typeName: string, keyName: string): { location: vscode.Location; lineText: string } | null { 
-        if (!this.schemaFilePath) {
-            return null;
-        }
-
-        // 1. 沿着继承链找到真正定义该键的类型
-        let definerTypeName: string | null = null;
+    public findKeyDefiner(typeName: string, keyName: string): { definerTypeName: string, locationInfo: { location: vscode.Location; lineText: string } | null } | null {
         let currentTypeName: string | null = typeName;
+        let definerTypeName: string | null = null;
+    
         while (currentTypeName) {
             const schema = this.schemas.get(currentTypeName);
             if (schema?.keys.has(keyName)) {
@@ -365,18 +369,32 @@ export class SchemaManager {
             }
             currentTypeName = schema?.base ?? null;
         }
-
+    
         if (!definerTypeName) {
-            return null; // 在继承链中未找到该键
+            return null;
         }
 
-        // 2. 读取 Schema 文件内容并查找位置
+        const locationInfo = this.findKeyLocationInSchema(definerTypeName, keyName);
+        return { definerTypeName, locationInfo };
+    }
+
+    /**
+     * 在 Schema 文件中查找特定类型内某个键的精确位置和内容。
+     * @param typeName 要搜索的类型名 (必须是定义键的那个确切类型)
+     * @param keyName 要查找的键名
+     * @returns 包含位置和行文本的对象，如果未找到则返回 null
+     */
+    private findKeyLocationInSchema(typeName: string, keyName: string): { location: vscode.Location; lineText: string } | null {
+        if (!this.schemaFilePath) {
+            return null;
+        }
+
         try {
             const content = fs.readFileSync(this.schemaFilePath, 'utf-8');
             const lines = content.split(/\r?\n/);
             
             const escapeRegex = (str: string) => str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-            const sectionRegex = new RegExp(`^\\[${escapeRegex(definerTypeName)}\\]`);
+            const sectionRegex = new RegExp(`^\\[${escapeRegex(typeName)}\\]`);
             const keyRegex = new RegExp(`^\\s*${escapeRegex(keyName)}\\s*(=|\\()`);
             const nextSectionRegex = /^\s*\[.+\]/;
 
@@ -397,7 +415,7 @@ export class SchemaManager {
                         return { location, lineText: line.trim() };
                     }
                     if (nextSectionRegex.test(trimmedLine)) {
-                        break; // 已经进入下一个节，无需继续搜索
+                        break;
                     }
                 }
             }
