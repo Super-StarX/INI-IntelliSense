@@ -1,3 +1,7 @@
+import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as ini from 'ini';
+
 /**
  * 存储一个Schema类型的定义。
  */
@@ -63,6 +67,7 @@ export class SchemaManager {
     private keyCache = new Map<string, Map<string, string>>();
     // 标记Schema文件是否已成功加载并解析。
     private isLoaded: boolean = false;
+    private schemaFilePath: string | null = null;
 
     // --- 新增: 用于存储高级类型校验规则 ---
     private numberLimits = new Map<string, NumberLimit>();
@@ -85,6 +90,7 @@ export class SchemaManager {
         this.schemas.clear();
         this.keyCache.clear();
         this.isLoaded = false;
+        this.schemaFilePath = null;
         
         this.numberLimits.clear();
         this.stringLimits.clear();
@@ -123,9 +129,11 @@ export class SchemaManager {
      * 手动逐行加载并解析 schema 文件的内容。
      * 采用两遍扫描法，第一遍建立结构，第二遍填充内容。
      * @param content INICodingCheck.ini 文件的字符串内容
+     * @param filePath INICodingCheck.ini 文件的绝对路径
      */
-    public loadSchema(content: string) {
+    public loadSchema(content: string, filePath: string) {
         this.clearSchema();
+        this.schemaFilePath = filePath;
         
         const lines = content.split(/\r?\n/);
         
@@ -334,6 +342,71 @@ export class SchemaManager {
         // 将计算结果存入缓存。
         this.keyCache.set(typeName, allKeys);
         return allKeys;
+    }
+
+    /**
+     * 在 Schema 文件中查找特定类型内某个键的精确位置。
+     * @param typeName 要搜索的类型名
+     * @param keyName 要查找的键名
+     * @returns 键的位置信息，如果未找到则返回 null
+     */
+    public findKeyLocationInSchema(typeName: string, keyName: string): { location: vscode.Location; lineText: string } | null { 
+        if (!this.schemaFilePath) {
+            return null;
+        }
+
+        // 1. 沿着继承链找到真正定义该键的类型
+        let definerTypeName: string | null = null;
+        let currentTypeName: string | null = typeName;
+        while (currentTypeName) {
+            const schema = this.schemas.get(currentTypeName);
+            if (schema?.keys.has(keyName)) {
+                definerTypeName = currentTypeName;
+            }
+            currentTypeName = schema?.base ?? null;
+        }
+
+        if (!definerTypeName) {
+            return null; // 在继承链中未找到该键
+        }
+
+        // 2. 读取 Schema 文件内容并查找位置
+        try {
+            const content = fs.readFileSync(this.schemaFilePath, 'utf-8');
+            const lines = content.split(/\r?\n/);
+            
+            const escapeRegex = (str: string) => str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            const sectionRegex = new RegExp(`^\\[${escapeRegex(definerTypeName)}\\]`);
+            const keyRegex = new RegExp(`^\\s*${escapeRegex(keyName)}\\s*(=|\\()`);
+            const nextSectionRegex = /^\s*\[.+\]/;
+
+            let inSection = false;
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const trimmedLine = line.trim();
+                if (sectionRegex.test(trimmedLine)) {
+                    inSection = true;
+                    continue;
+                }
+
+                if (inSection) {
+                    if (keyRegex.test(line)) {
+                        const keyStartIndex = line.indexOf(keyName);
+                        const range = new vscode.Range(i, keyStartIndex, i, keyStartIndex + keyName.length);
+                        const location = new vscode.Location(vscode.Uri.file(this.schemaFilePath), range);
+                        return { location, lineText: line.trim() };
+                    }
+                    if (nextSectionRegex.test(trimmedLine)) {
+                        break; // 已经进入下一个节，无需继续搜索
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error reading schema file for key location: ${error}`);
+            return null;
+        }
+        
+        return null;
     }
 
     /**

@@ -8,6 +8,7 @@ import { DynamicThemeManager } from './dynamic-theme';
 import { DiagnosticEngine } from './diagnostics/engine';
 import { ErrorCode } from './diagnostics/error-codes';
 import { IniDiagnostic } from './diagnostics/diagnostic';
+import { OverrideDecorator } from './override-decorator';
 
 let diagnostics: vscode.DiagnosticCollection;
 const LANGUAGE_ID = 'ra2-ini';
@@ -34,6 +35,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	// 初始化动态主题管理器，负责自定义语法高亮
 	const themeManager = new DynamicThemeManager();
 	context.subscriptions.push(themeManager);
+
+	// 初始化继承覆盖装饰器
+	const overrideDecorator = new OverrideDecorator(context, iniManager, schemaManager);
+	context.subscriptions.push(overrideDecorator);
 
 	// 创建并配置状态栏图标，用于显示和管理 Schema 文件
 	const schemaStatusbar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
@@ -102,7 +107,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				const schemaUri = vscode.Uri.file(schemaPath);
 				const schemaContentBytes = await vscode.workspace.fs.readFile(schemaUri);
 				const schemaContent = Buffer.from(schemaContentBytes).toString('utf-8');
-				schemaManager.loadSchema(schemaContent);
+				schemaManager.loadSchema(schemaContent, schemaPath);
 				loadedPath = schemaPath;
 				if (isExplicitPath) {
 					 vscode.window.showInformationMessage(`自定义 INI 规则文件加载成功: ${schemaPath}`);
@@ -134,8 +139,22 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 	}));
 
+	// 注册内部命令：用于从悬浮提示中点击跳转
+	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.jumpToOverride', async (args) => {
+		const { uri, position } = args;
+		const targetUri = vscode.Uri.parse(uri);
+		const targetPosition = new vscode.Position(position.line, position.character);
+		
+		const document = await vscode.workspace.openTextDocument(targetUri);
+		const editor = await vscode.window.showTextDocument(document);
+		editor.selection = new vscode.Selection(targetPosition, targetPosition);
+		editor.revealRange(new vscode.Range(targetPosition, targetPosition), vscode.TextEditorRevealType.InCenter);
+	}));
+
+
 	// 首次激活时，立即加载一次 Schema
 	await loadSchemaFromConfiguration();
+	overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
 
 	// 注册并管理代码透镜 (CodeLens) 提供程序
 	let codeLensProvider: vscode.Disposable | undefined;
@@ -192,9 +211,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	// 监听配置变更，动态更新功能
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
 		let needsFullDiagnosticUpdate = false;
+		let needsDecoratorUpdate = false;
+
 		if (e.affectsConfiguration('ra2-ini-intellisense.schemaFilePath') || e.affectsConfiguration('ra2-ini-intellisense.exePath')) {
 			await loadSchemaFromConfiguration();
 			needsFullDiagnosticUpdate = true;
+			needsDecoratorUpdate = true;
 		}
 		if (e.affectsConfiguration('ra2-ini-intellisense.codeLens.enabled')) {
 			updateCodeLensProvider();
@@ -205,8 +227,14 @@ export async function activate(context: vscode.ExtensionContext) {
 		if (needsFullDiagnosticUpdate) {
 			vscode.workspace.textDocuments.forEach(doc => updateDiagnostics(doc));
 		}
+		if (needsDecoratorUpdate) {
+			overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
+		}
 		if (e.affectsConfiguration('ra2-ini-intellisense.colors')) {
 			themeManager.reloadDecorations();
+		}
+		if (e.affectsConfiguration('ra2-ini-intellisense.decorations')) {
+			overrideDecorator.reload();
 		}
 	}));
 	updateCodeLensProvider();
@@ -218,7 +246,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	const reindexAndUpdateDiagnostics = async (uri: vscode.Uri) => {
 		console.log(`INI 文件变更: ${uri.fsPath}, 正在重新索引...`);
 		await indexWorkspaceFiles();
-		vscode.workspace.textDocuments.forEach(doc => updateDiagnostics(doc));
+		vscode.workspace.textDocuments.forEach(doc => {
+			updateDiagnostics(doc);
+			overrideDecorator.triggerUpdateDecorations(doc.uri);
+		});
 	};
 
 	watcher.onDidCreate(reindexAndUpdateDiagnostics);
@@ -342,7 +373,9 @@ export async function activate(context: vscode.ExtensionContext) {
 		const newInternalDiagnostics = diagnosticEngine.analyze(context, affectedRange);
 		
 		// 过滤掉受影响范围内的旧诊断，然后合并新的诊断
-		const unaffectedDiagnostics = existingDiagnostics.filter(d => d.source !== 'INI Validator' && !affectedRange.contains(d.range));
+		const unaffectedDiagnostics = existingDiagnostics.filter(
+			(d): d is IniDiagnostic => d.source !== 'INI Validator' && !affectedRange.contains(d.range)
+		);
 		internalDiagnostics = [...unaffectedDiagnostics, ...newInternalDiagnostics];
 
 		diagnostics.set(document.uri, [...externalDiagnostics, ...internalDiagnostics]);
@@ -423,9 +456,40 @@ export async function activate(context: vscode.ExtensionContext) {
 							}
 					
 							if (valueType) {
-								const markdown = new vscode.MarkdownString();
+								const markdown = new vscode.MarkdownString("", true);
+								markdown.isTrusted = true;
+								markdown.supportThemeIcons = true;
+
 								markdown.appendCodeblock(`${keyPart}: ${valueType}`, 'ini');
 								markdown.appendMarkdown(`属于 **${typeName}** 类型。`);
+
+								// 检查并附加覆盖信息
+								const parentName = iniManager.getInheritance(currentSectionName);
+								if (parentName) {
+									
+									// 使用 iniManager 在实例数据中查找
+									const parentKeyInfo = iniManager.findKeyLocation(parentName, keyPart); 
+									if (parentKeyInfo) {
+										markdown.appendMarkdown('\n\n---\n\n');
+
+										const parentValueMatch = parentKeyInfo.lineText.match(/=\s*(.*)/);
+										// 清除可能存在的行内注释
+										const parentValueRaw = parentValueMatch ? parentValueMatch[1].trim() : '';
+										const parentValue = parentValueRaw.split(';')[0].trim();
+
+										const lineNum = parentKeyInfo.location.range.start.line + 1;
+
+										markdown.appendMarkdown(`此键覆盖了基类 \`[${parentName}]\` (L${lineNum}) 的值 \`${parentValue || ' '}\`。`);
+
+										const args = {
+											uri: parentKeyInfo.location.uri.toString(),
+											position: parentKeyInfo.location.range.start
+										};
+										const commandUri = vscode.Uri.parse(`command:ra2-ini-intellisense.jumpToOverride?${encodeURIComponent(JSON.stringify(args))}`);
+										markdown.appendMarkdown(`\n\n[$(go-to-file) 跳转到父类定义](${commandUri})`);
+									}
+								}
+
 								return new vscode.Hover(markdown, keyRange);
 							}
 						}

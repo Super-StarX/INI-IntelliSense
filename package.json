@@ -84,6 +84,11 @@
         "command": "ra2-ini-intellisense.configureSchemaPath",
         "title": "INI: 设置 Schema 文件路径",
         "category": "INI IntelliSense"
+      },
+      {
+        "command": "ra2-ini-intellisense.jumpToOverride",
+        "title": "INI: 跳转到覆盖的定义",
+        "category": "INI IntelliSense"
       }
     ],
     "configuration": {
@@ -132,6 +137,11 @@
           "type": "boolean",
           "default": true,
           "description": "是否在节 (Section) 上方显示代码透镜 (CodeLens), 以展示其被引用的次数。"
+        },
+        "ra2-ini-intellisense.decorations.overrideIndicator.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用或禁用继承覆盖指示器 (在行号旁边的图标和斜体键名)。"
         },
         "ra2-ini-intellisense.diagnostics.enabled": {
           "type": "boolean",

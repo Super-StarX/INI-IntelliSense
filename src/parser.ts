@@ -33,6 +33,8 @@ export class INIManager {
     private schemaManager?: SchemaManager;
     // 核心索引：一个从 节ID -> 注册表名 的快速查找映射。
     private sectionToRegistryMap: Map<string, string> = new Map();
+    // 存储节的继承关系: 子节 -> 父节
+    private sectionInheritance: Map<string, string> = new Map();
     // 反向索引：从 值 -> 引用位置列表 的快速查找映射 (用于 Key=Value)。
     public valueReferences: Map<string, vscode.Location[]> = new Map();
     // 反向索引：从 父节 -> 继承位置列表 的快速查找映射 (用于 [Child]:[Parent])。
@@ -51,6 +53,7 @@ export class INIManager {
         this.detailedRegistryInfo.clear();
         this.valueReferences.clear();
         this.inheritanceReferences.clear();
+        this.sectionInheritance.clear();
         this.inferredTypeCache.clear();
     }
     
@@ -165,7 +168,7 @@ export class INIManager {
      */
     private buildCrossReferencesIndex() {
         const keyValueRegex = /^\s*[^;=\s][^=]*=\s*(.*)/;
-        const inheritanceRegex = /^\s*\[[^\]:]+\]\s*:\s*\[([^\]]+)\]/;
+        const inheritanceRegex = /^\s*\[([^\]:]+)\]\s*:\s*\[([^\]]+)\]/;
 
         for (const [filePath, fileData] of this.files.entries()) {
             const lines = fileData.content.split(/\r?\n/);
@@ -177,8 +180,10 @@ export class INIManager {
                 // 检查继承引用
                 const inheritanceMatch = line.match(inheritanceRegex);
                 if (inheritanceMatch) {
-                    const parentName = inheritanceMatch[1].trim();
-                    if (parentName) {
+                    const childName = inheritanceMatch[1].trim();
+                    const parentName = inheritanceMatch[2].trim();
+                    if (childName && parentName) {
+                        this.sectionInheritance.set(childName, parentName);
                         const locations = this.inheritanceReferences.get(parentName) || [];
                         const parentStartIndex = line.lastIndexOf(parentName);
                         if (parentStartIndex > -1) {
@@ -252,6 +257,49 @@ export class INIManager {
     }
     
     /**
+     * 在整个工作区中查找特定节内某个键的精确位置和行文本。
+     * @param sectionName 要搜索的节名
+     * @param keyName 要查找的键名
+     * @returns 包含位置和行文本的对象，如果未找到则返回 null 
+     */
+    public findKeyLocation(sectionName: string, keyName: string): { location: vscode.Location; lineText: string } | null {
+        const sectionInfo = this.findSection(sectionName);
+        if (!sectionInfo) {
+            return null;
+        }
+
+        const lines = sectionInfo.content.split(/\r?\n/);
+        let inSection = false;
+        
+        const escapeRegex = (str: string) => str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const sectionRegex = new RegExp(`^\\[${escapeRegex(sectionName)}\\]`);
+        const keyRegex = new RegExp(`^\\s*${escapeRegex(keyName)}\\s*=`);
+        const nextSectionRegex = /^\s*\[.+\]/;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmedLine = line.trim();
+            if (sectionRegex.test(trimmedLine)) {
+                inSection = true;
+                continue;
+            }
+            
+            if (inSection) {
+                if (keyRegex.test(line)) {
+                    const keyStartIndex = line.indexOf(keyName);
+                    const range = new vscode.Range(i, keyStartIndex, i, keyStartIndex + keyName.length);
+                    const location = new vscode.Location(vscode.Uri.file(sectionInfo.file), range);
+                    return { location, lineText: line.trim() };
+                }
+                if (nextSectionRegex.test(trimmedLine)) {
+                    break;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * 根据节名推断其类型，采用多级回退策略（直接匹配 -> 注册表 -> 引用推断）。
      * @param sectionName 要推断的节名
      * @param visited 用于防止在递归推断中出现无限循环
@@ -322,6 +370,15 @@ export class INIManager {
         // --- 5. 回退 ---
         this.inferredTypeCache.set(sectionName, sectionName);
         return sectionName;
+    }
+
+    /**
+     * 获取指定节的父节名称。
+     * @param sectionName 子节的名称
+     * @returns 父节的名称，如果没有则返回 undefined
+     */
+    public getInheritance(sectionName: string): string | undefined {
+        return this.sectionInheritance.get(sectionName);
     }
     
     /**
