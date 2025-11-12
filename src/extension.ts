@@ -395,7 +395,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.languages.registerDefinitionProvider(selector, {
 			async provideDefinition(document, position, token) {
 				const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
-				if (!wordRange) return null;
+				if (!wordRange) {return null;}
 				const word = document.getText(wordRange);
 
 				const lineInCurrentFile = iniManager.findSectionInContent(document.getText(), word);
@@ -405,17 +405,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
 				const locations: vscode.Location[] = [];
 				for (const [filePath, data] of iniManager.files.entries()) {
-					if (filePath === document.uri.fsPath) continue;
+					if (filePath === document.uri.fsPath) {continue;}
 					const line = iniManager.findSectionInContent(data.content, word);
 					if (line !== null) {
 						locations.push(new vscode.Location(vscode.Uri.file(filePath), new vscode.Position(line, 0)));
 					}
 				}
 
-				if (locations.length === 1) return locations[0];
-				if (locations.length > 1) return locations;
-
-				vscode.window.showInformationMessage(`未找到节 '[${word}]' 的定义`);
+				if (locations.length === 1) {return locations[0];}
+				
 				return null;
 			}
 		}),
@@ -428,7 +426,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 				if (equalsIndex === -1) { // 如果不是键值对行，检查是否悬停在值上
 					const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
-					if (!wordRange) return null;
+					if (!wordRange) {return null;}
 
 					const word = document.getText(wordRange);
 					const sectionInfo = iniManager.findSection(word);
@@ -445,7 +443,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				const keyPart = lineText.substring(0, equalsIndex).trim();
 				const keyRange = new vscode.Range(position.line, line.firstNonWhitespaceCharacterIndex, position.line, equalsIndex);
 
-				if (!keyRange.contains(position)) return null;
+				if (!keyRange.contains(position)) {return null;}
 
 				let currentSectionName: string | null = null;
 				for (let i = position.line; i >= 0; i--) {
@@ -456,7 +454,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						break;
 					}
 				}
-				if (!currentSectionName) return null;
+				if (!currentSectionName) {return null;}
 		
 				const markdown = new vscode.MarkdownString("", true);
 				markdown.isTrusted = true;
@@ -488,7 +486,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					const parentKeyInfo = iniManager.findKeyLocationRecursive(parentInstanceName, keyPart); 
 					
 					if (parentKeyInfo && parentKeyInfo.location && parentKeyInfo.lineText && parentKeyInfo.definer) {
-						if(hasContent) markdown.appendMarkdown('\n\n---\n\n');
+						if(hasContent) {markdown.appendMarkdown('\n\n---\n\n');}
 
 						const lineNum = parentKeyInfo.location.range.start.line + 1;
 						const fileName = path.basename(parentKeyInfo.location.uri.fsPath);
@@ -531,14 +529,14 @@ export async function activate(context: vscode.ExtensionContext) {
 						break;
 					}
 				}
-				if (!currentSectionName) return new vscode.CompletionList([], false);
+				if (!currentSectionName) {return new vscode.CompletionList([], false);}
 		
 				const typeName = iniManager.getTypeForSection(currentSectionName);
-				if (!typeName) return new vscode.CompletionList([], false);
+				if (!typeName) {return new vscode.CompletionList([], false);}
 
 				if (isKeyCompletion) {
 					const keys = schemaManager.getAllKeysForType(typeName);
-					if (keys.size === 0) return new vscode.CompletionList([], false);
+					if (keys.size === 0) {return new vscode.CompletionList([], false);}
 			
 					const items = Array.from(keys.entries()).map(([key, valueType]) => {
 						const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
@@ -575,7 +573,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						if (targetRegistry) {
 							const ids = iniManager.getValuesForRegistry(targetRegistry);
 							ids.forEach(id => suggestions.push(new vscode.CompletionItem(id, vscode.CompletionItemKind.EnumMember)));
-							if (suggestions.length > 0) return new vscode.CompletionList(suggestions, true);
+							if (suggestions.length > 0) {return new vscode.CompletionList(suggestions, true);}
 						}
 					}
 					
@@ -611,7 +609,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				for (let i = 0; i < document.lineCount; i++) {
 					const line = document.lineAt(i);
 					const equalsIndex = line.text.indexOf('=');
-					if (equalsIndex === -1) continue;
+					if (equalsIndex === -1) {continue;}
 
 					let currentSectionName: string | null = null;
 					for (let j = i; j >= 0; j--) {
@@ -622,7 +620,7 @@ export async function activate(context: vscode.ExtensionContext) {
 							break;
 						}
 					}
-					if (!currentSectionName) continue;
+					if (!currentSectionName) {continue;}
 					
 					const currentKey = line.text.substring(0, equalsIndex).trim();
 					const typeName = iniManager.getTypeForSection(currentSectionName);
