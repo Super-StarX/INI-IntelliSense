@@ -103,22 +103,21 @@ export class DynamicThemeManager implements vscode.Disposable {
             return;
         }
 
-        const text = editor.document.getText();
+        const document = editor.document;
         const decorationsMap = new Map<string, vscode.Range[]>();
         this.decorationTypes.forEach((_, key) => decorationsMap.set(key, []));
 
-        const lines = text.split(/\r?\n/);
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
+        for (let i = 0; i < document.lineCount; i++) {
+            const line = document.lineAt(i);
+            const lineText = line.text;
             
             // 1. 匹配注释 (优先级最高, 找到后整行不再处理)
-            const commentMatch = line.match(/;.*$/);
-            if (commentMatch) {
-                const range = new vscode.Range(i, commentMatch.index!, i, line.length);
+            const commentMatch = lineText.match(/;.*$/);
+            if (commentMatch && commentMatch.index !== undefined) {
+                const range = new vscode.Range(i, commentMatch.index, i, lineText.length);
                 decorationsMap.get('comment')!.push(range);
             }
-            const lineWithoutComment = commentMatch ? line.substring(0, commentMatch.index) : line;
+            const lineWithoutComment = commentMatch && commentMatch.index !== undefined ? lineText.substring(0, commentMatch.index) : lineText;
 
             // 2. 匹配节
             const sectionInheritMatch = lineWithoutComment.match(/^\s*(\[)([^\]:]+)(\]:\[)([^\]]+)(\])/);

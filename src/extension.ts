@@ -7,6 +7,7 @@ import { SchemaManager } from './schema-manager';
 import { DynamicThemeManager } from './dynamic-theme';
 import { DiagnosticEngine } from './diagnostics/engine';
 import { ErrorCode } from './diagnostics/error-codes';
+import { IniDiagnostic } from './diagnostics/diagnostic';
 
 let diagnostics: vscode.DiagnosticCollection;
 const LANGUAGE_ID = 'ra2-ini';
@@ -190,14 +191,18 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	// 监听配置变更，动态更新功能
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
+		let needsFullDiagnosticUpdate = false;
 		if (e.affectsConfiguration('ra2-ini-intellisense.schemaFilePath') || e.affectsConfiguration('ra2-ini-intellisense.exePath')) {
 			await loadSchemaFromConfiguration();
-			vscode.workspace.textDocuments.forEach(doc => updateDiagnostics(doc));
+			needsFullDiagnosticUpdate = true;
 		}
 		if (e.affectsConfiguration('ra2-ini-intellisense.codeLens.enabled')) {
 			updateCodeLensProvider();
 		}
 		if (e.affectsConfiguration('ra2-ini-intellisense.diagnostics')) {
+			needsFullDiagnosticUpdate = true;
+		}
+		if (needsFullDiagnosticUpdate) {
 			vscode.workspace.textDocuments.forEach(doc => updateDiagnostics(doc));
 		}
 		if (e.affectsConfiguration('ra2-ini-intellisense.colors')) {
@@ -291,8 +296,9 @@ export async function activate(context: vscode.ExtensionContext) {
      * 更新单个文档的诊断信息。
 	 * 此函数作为协调者，调用诊断引擎来执行所有实际的检查工作。
      * @param document 需要更新诊断的文本文档
+     * @param contentChanges 文档变更的数组，用于增量更新
      */
-    const updateDiagnostics = async (document: vscode.TextDocument) => {
+    const updateDiagnostics = async (document: vscode.TextDocument, contentChanges?: readonly vscode.TextDocumentContentChangeEvent[]) => {
         if (document.languageId !== LANGUAGE_ID) {
             return;
         }
@@ -300,24 +306,50 @@ export async function activate(context: vscode.ExtensionContext) {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense.diagnostics');
 		const disabledErrorCodes = new Set<ErrorCode>(config.get<string[]>('disable', []).map(code => code as ErrorCode));
 
-		// 调用诊断引擎进行分析
-		const internalDiagnostics = diagnosticEngine.analyze({
+		const context = {
 			document,
 			schemaManager,
 			iniManager,
 			config,
 			disabledErrorCodes
-		});
-		
-		// 合并来自外部工具 (INIValidator) 和内部引擎的诊断信息
+		};
+
 		const existingDiagnostics = diagnostics.get(document.uri) || [];
 		const externalDiagnostics = existingDiagnostics.filter(d => d.source === 'INI Validator');
+		let internalDiagnostics: IniDiagnostic[];
+
+		// 如果没有变更信息，或变更信息为空，则执行全量扫描
+		if (!contentChanges || contentChanges.length === 0) {
+			internalDiagnostics = diagnosticEngine.analyze(context);
+			diagnostics.set(document.uri, [...externalDiagnostics, ...internalDiagnostics]);
+			return;
+		}
+
+		// 增量更新逻辑
+		let minLine = Infinity;
+		let maxLine = -1;
+		for (const change of contentChanges) {
+			minLine = Math.min(minLine, change.range.start.line);
+			const changeEndLine = change.range.start.line + (change.text.match(/\n/g) || []).length;
+			maxLine = Math.max(maxLine, changeEndLine, change.range.end.line);
+		}
+
+		if (minLine > maxLine) {
+			return; // 没有实际的行变更
+		}
+
+		const affectedRange = new vscode.Range(minLine, 0, maxLine, Number.MAX_SAFE_INTEGER);
+		const newInternalDiagnostics = diagnosticEngine.analyze(context, affectedRange);
 		
+		// 过滤掉受影响范围内的旧诊断，然后合并新的诊断
+		const unaffectedDiagnostics = existingDiagnostics.filter(d => d.source !== 'INI Validator' && !affectedRange.contains(d.range));
+		internalDiagnostics = [...unaffectedDiagnostics, ...newInternalDiagnostics];
+
 		diagnostics.set(document.uri, [...externalDiagnostics, ...internalDiagnostics]);
     };
 
 	// 监听文档事件，实时更新诊断
-    vscode.workspace.onDidChangeTextDocument(event => updateDiagnostics(event.document));
+    vscode.workspace.onDidChangeTextDocument(event => updateDiagnostics(event.document, event.contentChanges));
     vscode.workspace.onDidOpenTextDocument(document => updateDiagnostics(document));
     vscode.workspace.onDidCloseTextDocument(document => diagnostics.delete(document.uri));
 
