@@ -60,7 +60,7 @@ const checkCommentSpacing: ValidationRule = (context: RuleContext): IniDiagnosti
     const lineText = line.text;
     const commentIndex = lineText.indexOf(';');
 
-    if (commentIndex === -1) return [];
+    if (commentIndex === -1) {return [];}
 
     const spacesBeforeComment = config.get<number | null>('spacesBeforeComment', 1);
     if (spacesBeforeComment !== null) {

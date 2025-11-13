@@ -3,16 +3,15 @@
   "displayName": "INI IntelliSense",
   "publisher": "Astralette",
   "description": "为红色警戒2 Mod开发提供强大的INI智能提示",
-  "version": "0.0.1",
+  "private": true,
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.96.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onLanguage:ra2-ini"
-  ],
+  "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [
@@ -51,7 +50,8 @@
       "ini-intellisense-explorer": [
         {
           "id": "ini-outline",
-          "name": "INI Project Outline"
+          "name": "INI Project Outline",
+          "icon": "$(list-tree)"
         }
       ]
     },

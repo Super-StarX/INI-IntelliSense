@@ -98,10 +98,10 @@ export class INIManager {
      * 构建一个从 节ID -> 注册表名 的索引 (例如 "GAWEAP" -> "BuildingTypes")。
      */
     private buildRegistryIndex() {
-        if (!this.schemaManager) return;
+        if (!this.schemaManager) {return;}
     
         const idListRegistryNames = this.schemaManager.getIdListRegistryNames();
-        if (idListRegistryNames.size === 0) return;
+        if (idListRegistryNames.size === 0) {return;}
     
         for (const [filePath, fileData] of this.files.entries()) {
             const lines = fileData.content.split(/\r?\n/);
@@ -142,11 +142,11 @@ export class INIManager {
     
                 // 规则 2：只有当我们确认处于一个注册表节的内部时，才处理这一行。
                 if (currentRegistryName) {
-                    if (trimmedLine === '' || trimmedLine.startsWith(';')) continue;
+                    if (trimmedLine === '' || trimmedLine.startsWith(';')) {continue;}
     
                     // 提取ID值
                     let value = trimmedLine.split(';')[0].trim();
-                    if (!value) continue;
+                    if (!value) {continue;}
 
                     const equalsIndex = value.indexOf('=');
                     if (equalsIndex !== -1) {
@@ -339,7 +339,7 @@ export class INIManager {
      * @returns 推断出的类型名，如果无法推断则返回节名本身
      */
     public getTypeForSection(sectionName: string, visited: Set<string> = new Set()): string {
-        if (!this.schemaManager) return sectionName;
+        if (!this.schemaManager) {return sectionName;}
 
         // --- 0. 递归保护 ---
         if (visited.has(sectionName)) {
@@ -371,14 +371,14 @@ export class INIManager {
         if (references) {
             for (const location of references) {
                 const lineText = this.files.get(location.uri.fsPath)?.content.split(/\r?\n/)[location.range.start.line];
-                if (!lineText) continue;
+                if (!lineText) {continue;}
 
                 const kvMatch = lineText.match(/^\s*([^;=\s][^=]*?)\s*=/);
-                if (!kvMatch) continue;
+                if (!kvMatch) {continue;}
 
                 const key = kvMatch[1].trim();
                 const contextSectionName = this.getSectionNameAtLine(location.uri.fsPath, location.range.start.line);
-                if (!contextSectionName) continue;
+                if (!contextSectionName) {continue;}
 
                 // 递归调用以确定引用上下文的类型
                 const contextTypeName = this.getTypeForSection(contextSectionName, visited);
@@ -422,7 +422,7 @@ export class INIManager {
      */
     private getSectionNameAtLine(filePath: string, lineNumber: number): string | null {
         const fileData = this.files.get(filePath);
-        if (!fileData) return null;
+        if (!fileData) {return null;}
         
         const lines = fileData.content.split(/\r?\n/);
         for (let i = lineNumber; i >= 0; i--) {
@@ -527,7 +527,7 @@ export class INIManager {
      */
     public getValuesForRegistry(registryName: string): Set<string> {
         const values = new Set<string>();
-        if (!registryName) return values;
+        if (!registryName) {return values;}
 
         const escapedRegistryName = registryName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
         const sectionRegex = new RegExp(`^\\[${escapedRegistryName}\\]`, 'i');
@@ -550,7 +550,7 @@ export class INIManager {
                         continue;
                     }
 
-                    if (trimmedLine === '' || trimmedLine.startsWith(';')) continue;
+                    if (trimmedLine === '' || trimmedLine.startsWith(';')) {continue;}
 
                     let value = trimmedLine.split(';')[0].trim();
                     if (value) {
@@ -558,7 +558,7 @@ export class INIManager {
                         if (equalsIndex !== -1) {
                             value = value.substring(equalsIndex + 1).trim();
                         }
-                        if (value) values.add(value);
+                        if (value) {values.add(value);}
                     }
                 }
             }

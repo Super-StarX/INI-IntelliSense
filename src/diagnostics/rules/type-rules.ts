@@ -23,15 +23,15 @@ function validateValue(value: string, valueType: string, context: RuleContext, v
 
     switch (category) {
         case ValueTypeCategory.Primitive:
-            if (valueType === 'int' && !/^-?\d+$/.test(value)) return createError(`值 "${value}" 不是一个有效的整数。`, ErrorCode.TYPE_INVALID_INTEGER);
-            if (valueType === 'float' && isNaN(parseFloat(value))) return createError(`值 "${value}" 不是一个有效的浮点数。`, ErrorCode.TYPE_INVALID_FLOAT);
+            if (valueType === 'int' && !/^-?\d+$/.test(value)) {return createError(`值 "${value}" 不是一个有效的整数。`, ErrorCode.TYPE_INVALID_INTEGER);}
+            if (valueType === 'float' && isNaN(parseFloat(value))) {return createError(`值 "${value}" 不是一个有效的浮点数。`, ErrorCode.TYPE_INVALID_FLOAT);}
             return [];
 
         case ValueTypeCategory.NumberLimit: {
             const limit = schemaManager.getNumberLimit(valueType);
-            if (!limit) return [];
+            if (!limit) {return [];}
             const num = parseInt(value, 10);
-            if (isNaN(num)) return createError(`值 "${value}" 不是一个有效的整数。`, ErrorCode.TYPE_INVALID_INTEGER);
+            if (isNaN(num)) {return createError(`值 "${value}" 不是一个有效的整数。`, ErrorCode.TYPE_INVALID_INTEGER);}
             if (num < limit.min || num > limit.max) {
                 return createError(`值 ${value} 超出类型 '${valueType}' 的范围 [${limit.min}, ${limit.max}]。`, ErrorCode.TYPE_NUMBER_OUT_OF_RANGE);
             }
@@ -40,32 +40,32 @@ function validateValue(value: string, valueType: string, context: RuleContext, v
 
         case ValueTypeCategory.StringLimit: {
             const limit = schemaManager.getStringLimit(valueType);
-            if (!limit) return [];
+            if (!limit) {return [];}
             const compareValue = limit.caseSensitive ? value : value.toLowerCase();
 
             if (limit.limitIn) {
                 const allowed = limit.caseSensitive ? limit.limitIn : limit.limitIn.map(v => v.toLowerCase());
-                if (!allowed.includes(compareValue)) return createError(`值 "${value}" 不是类型 '${valueType}' 允许的值之一。`, ErrorCode.TYPE_VALUE_NOT_IN_LIST);
+                if (!allowed.includes(compareValue)) {return createError(`值 "${value}" 不是类型 '${valueType}' 允许的值之一。`, ErrorCode.TYPE_VALUE_NOT_IN_LIST);}
             }
             if (limit.startWith) {
                 const prefixes = limit.caseSensitive ? limit.startWith : limit.startWith.map(v => v.toLowerCase());
-                if (!prefixes.some(p => compareValue.startsWith(p))) return createError(`值 "${value}" 不符合类型 '${valueType}' 的前缀要求。`, ErrorCode.TYPE_INVALID_PREFIX);
+                if (!prefixes.some(p => compareValue.startsWith(p))) {return createError(`值 "${value}" 不符合类型 '${valueType}' 的前缀要求。`, ErrorCode.TYPE_INVALID_PREFIX);}
             }
             if (limit.endWith) {
                 const suffixes = limit.caseSensitive ? limit.endWith : limit.endWith.map(v => v.toLowerCase());
-                if (!suffixes.some(s => compareValue.endsWith(s))) return createError(`值 "${value}" 不符合类型 '${valueType}' 的后缀要求。`, ErrorCode.TYPE_INVALID_SUFFIX);
+                if (!suffixes.some(s => compareValue.endsWith(s))) {return createError(`值 "${value}" 不符合类型 '${valueType}' 的后缀要求。`, ErrorCode.TYPE_INVALID_SUFFIX);}
             }
             return [];
         }
 
         case ValueTypeCategory.List: {
             const definition = schemaManager.getListDefinition(valueType);
-            if (!definition) return [];
+            if (!definition) {return [];}
             
             const items = value ? value.split(',').map(item => item.trim()) : [];
 
-            if (definition.minRange !== undefined && items.length < definition.minRange) return createError(`类型 '${valueType}' 要求至少 ${definition.minRange} 个值，但只提供了 ${items.length} 个。`, ErrorCode.TYPE_LIST_INVALID_LENGTH);
-            if (definition.maxRange !== undefined && items.length > definition.maxRange) return createError(`类型 '${valueType}' 要求最多 ${definition.maxRange} 个值，但提供了 ${items.length} 个。`, ErrorCode.TYPE_LIST_INVALID_LENGTH);
+            if (definition.minRange !== undefined && items.length < definition.minRange) {return createError(`类型 '${valueType}' 要求至少 ${definition.minRange} 个值，但只提供了 ${items.length} 个。`, ErrorCode.TYPE_LIST_INVALID_LENGTH);}
+            if (definition.maxRange !== undefined && items.length > definition.maxRange) {return createError(`类型 '${valueType}' 要求最多 ${definition.maxRange} 个值，但提供了 ${items.length} 个。`, ErrorCode.TYPE_LIST_INVALID_LENGTH);}
             
             const allErrors: IniDiagnostic[] = [];
             let currentOffsetInValue = 0;

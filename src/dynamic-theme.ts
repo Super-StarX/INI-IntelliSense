@@ -87,10 +87,10 @@ export class DynamicThemeManager implements vscode.Disposable {
         }
         if (throttle) {
             this.timeout = setTimeout(() => {
-                if(this.activeEditor) this.updateDecorations(this.activeEditor);
+                if(this.activeEditor) {this.updateDecorations(this.activeEditor);}
             }, 200);
         } else {
-            if(this.activeEditor) this.updateDecorations(this.activeEditor);
+            if(this.activeEditor) {this.updateDecorations(this.activeEditor);}
         }
     }
     

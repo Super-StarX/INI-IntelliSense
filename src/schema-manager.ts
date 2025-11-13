@@ -151,7 +151,7 @@ export class SchemaManager {
 
         for (const line of lines) {
             const trimmedLine = line.trim();
-            if (trimmedLine === '' || trimmedLine.startsWith(';')) continue;
+            if (trimmedLine === '' || trimmedLine.startsWith(';')) {continue;}
 
             const sectionMatch = trimmedLine.match(/^\[([^\]:]+)\](?::\[([^\]]+)\])?/);
 
@@ -171,7 +171,7 @@ export class SchemaManager {
             if (data) {
                 data.contentLines.forEach(line => {
                     const [key] = this.parseKeyValue(line);
-                    if (key) typeSet.add(key);
+                    if (key) {typeSet.add(key);}
                 });
             }
         };
@@ -187,12 +187,12 @@ export class SchemaManager {
             if (typeName === 'Registries') {
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
-                    if (key && value) this.registries.set(key, value);
+                    if (key && value) {this.registries.set(key, value);}
                 }
             } else if (typeName === 'Sections') {
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
-                    if (key && value) this.sections.set(key, value);
+                    if (key && value) {this.sections.set(key, value);}
                 }
             } else if (this.numberLimitTypes.has(typeName)) {
                 const rangeLine = data.contentLines.find(l => l.trim().toLowerCase().startsWith('range'));
@@ -205,32 +205,32 @@ export class SchemaManager {
                 const limit: StringLimit = {};
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
-                    if (!key || value === null) continue;
+                    if (!key || value === null) {continue;}
                     const lowerKey = key.toLowerCase();
-                    if (lowerKey === 'startwith') limit.startWith = value.split(',').map(v => v.trim());
-                    else if (lowerKey === 'endwith') limit.endWith = value.split(',').map(v => v.trim());
-                    else if (lowerKey === 'limitin') limit.limitIn = value.split(',').map(v => v.trim());
-                    else if (lowerKey === 'casesensitive') limit.caseSensitive = ['true', 'yes', '1'].includes(value.toLowerCase());
+                    if (lowerKey === 'startwith') {limit.startWith = value.split(',').map(v => v.trim());}
+                    else if (lowerKey === 'endwith') {limit.endWith = value.split(',').map(v => v.trim());}
+                    else if (lowerKey === 'limitin') {limit.limitIn = value.split(',').map(v => v.trim());}
+                    else if (lowerKey === 'casesensitive') {limit.caseSensitive = ['true', 'yes', '1'].includes(value.toLowerCase());}
                 }
                 this.stringLimits.set(typeName, limit);
             } else if (this.listTypes.has(typeName)) {
                 const definition: ListDefinition = { type: 'string' };
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
-                    if (!key || value === null) continue;
+                    if (!key || value === null) {continue;}
                     const lowerKey = key.toLowerCase();
                     if (lowerKey === 'type') {
                         definition.type = value;
                     } else if (lowerKey === 'range') {
                         const [min, max] = value.split(',').map(v => parseInt(v.trim(), 10));
-                        if (!isNaN(min)) definition.minRange = min;
-                        if (!isNaN(max)) definition.maxRange = max;
+                        if (!isNaN(min)) {definition.minRange = min;}
+                        if (!isNaN(max)) {definition.maxRange = max;}
                     }
                 }
                 this.listDefinitions.set(typeName, definition);
             } else { // 这是一个普通的类型定义节
                 const definition = this.schemas.get(typeName) ?? { keys: new Map(), base: null };
-                if (data.base) definition.base = data.base;
+                if (data.base) {definition.base = data.base;}
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
                     if (key) {
@@ -271,11 +271,11 @@ export class SchemaManager {
      * @param typeName 要查询的类型名称
      */
     public getValueTypeCategory(typeName: string): ValueTypeCategory {
-        if (this.complexTypes.has(typeName)) return ValueTypeCategory.Section;
-        if (this.numberLimitTypes.has(typeName)) return ValueTypeCategory.NumberLimit;
-        if (this.stringLimitTypes.has(typeName)) return ValueTypeCategory.StringLimit;
-        if (this.listTypes.has(typeName)) return ValueTypeCategory.List;
-        if (['int', 'float', 'string'].includes(typeName)) return ValueTypeCategory.Primitive;
+        if (this.complexTypes.has(typeName)) {return ValueTypeCategory.Section;}
+        if (this.numberLimitTypes.has(typeName)) {return ValueTypeCategory.NumberLimit;}
+        if (this.stringLimitTypes.has(typeName)) {return ValueTypeCategory.StringLimit;}
+        if (this.listTypes.has(typeName)) {return ValueTypeCategory.List;}
+        if (['int', 'float', 'string'].includes(typeName)) {return ValueTypeCategory.Primitive;}
         return ValueTypeCategory.Unknown;
     }
 

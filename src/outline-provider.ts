@@ -125,7 +125,7 @@ export class INIOutlineProvider implements vscode.TreeDataProvider<OutlineItem> 
             case OutlineItemType.File:
                 // 文件级别: 显示所有节(sections)
                 const fileData = this.iniManager.files.get(filePath);
-                if (!fileData?.parsed) return [];
+                if (!fileData?.parsed) {return [];}
                 
                 const sections = Object.keys(fileData.parsed);
                 return sections.map(sectionName => {
@@ -140,7 +140,7 @@ export class INIOutlineProvider implements vscode.TreeDataProvider<OutlineItem> 
                     ? this.iniManager.files.get(filePath)?.parsed[element.sectionName!]
                     : data;
 
-                if (typeof parentData !== 'object' || parentData === null) return [];
+                if (typeof parentData !== 'object' || parentData === null) {return [];}
 
                 return Object.entries(parentData).map(([key, value]) => {
                     const isObject = typeof value === 'object' && value !== null;
