@@ -61,9 +61,32 @@ export async function activate(context: vscode.ExtensionContext) {
 	 * 这是实现跳转、引用查找和类型推断等功能的数据基础。
 	 */
 	async function indexWorkspaceFiles() {
-		const iniFiles = await vscode.workspace.findFiles('**/*.ini');
+		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
+		const includePatterns = config.get<string[]>('indexing.includePatterns', []);
+		const excludePatterns = config.get<string[]>('indexing.excludePatterns', []);
+		const validationFolderPath = config.get<string | null>('validationFolderPath');
+
+		let searchRoot: vscode.WorkspaceFolder | vscode.Uri | undefined;
+		if (validationFolderPath) {
+			searchRoot = vscode.Uri.file(validationFolderPath);
+		} else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+			searchRoot = vscode.workspace.workspaceFolders[0];
+		}
+
+		if (!searchRoot || includePatterns.length === 0) {
+			console.log('INI IntelliSense: 未配置搜索路径或包含模式，跳过文件索引。');
+			await iniManager.indexFiles([]); // 清空并重置索引
+			outlineProvider.refresh();
+			return;
+		}
+
+		const includePattern = new vscode.RelativePattern(searchRoot, `{${includePatterns.join(',')}}`);
+		const excludePattern = excludePatterns.length > 0 ? new vscode.RelativePattern(searchRoot, `{${excludePatterns.join(',')}}`) : null;
+		
+		const iniFiles = await vscode.workspace.findFiles(includePattern, excludePattern);
 		await iniManager.indexFiles(iniFiles);
-		console.log(`INI IntelliSense: 已索引 ${iniManager.files.size} 个INI文件。`);
+		const indexedFiles = Array.from(iniManager.files.keys()).map(p => path.basename(p));
+		console.log(`INI IntelliSense: 已索引 ${iniManager.files.size} 个INI文件: [${indexedFiles.join(', ')}]`);
 		outlineProvider.refresh();
 	}
 
@@ -210,11 +233,20 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	// 监听配置变更，动态更新功能
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
+		let needsFullScan = false;
 		let needsFullDiagnosticUpdate = false;
 		let needsDecoratorUpdate = false;
 
 		if (e.affectsConfiguration('ra2-ini-intellisense.schemaFilePath') || e.affectsConfiguration('ra2-ini-intellisense.exePath')) {
 			await loadSchemaFromConfiguration();
+			needsFullDiagnosticUpdate = true;
+			needsDecoratorUpdate = true;
+		}
+		if(e.affectsConfiguration('ra2-ini-intellisense.indexing')) {
+			needsFullScan = true;
+		}
+		if(needsFullScan) {
+			await indexWorkspaceFiles();
 			needsFullDiagnosticUpdate = true;
 			needsDecoratorUpdate = true;
 		}
@@ -395,7 +427,10 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.languages.registerDefinitionProvider(selector, {
 			async provideDefinition(document, position, token) {
 				const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
-				if (!wordRange) {return null;}
+				if (!wordRange) {
+					// Ctrl+悬停时，返回空数组抑制气泡
+					return [];
+				}
 				const word = document.getText(wordRange);
 
 				const lineInCurrentFile = iniManager.findSectionInContent(document.getText(), word);
@@ -405,16 +440,18 @@ export async function activate(context: vscode.ExtensionContext) {
 
 				const locations: vscode.Location[] = [];
 				for (const [filePath, data] of iniManager.files.entries()) {
-					if (filePath === document.uri.fsPath) {continue;}
+					if (filePath === document.uri.fsPath) continue;
 					const line = iniManager.findSectionInContent(data.content, word);
 					if (line !== null) {
 						locations.push(new vscode.Location(vscode.Uri.file(filePath), new vscode.Position(line, 0)));
 					}
 				}
 
-				if (locations.length === 1) {return locations[0];}
+				if (locations.length > 0) {
+					return locations;
+				}
 				
-				return null;
+				return [];
 			}
 		}),
 		// 悬停提示
@@ -426,7 +463,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 				if (equalsIndex === -1) { // 如果不是键值对行，检查是否悬停在值上
 					const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
-					if (!wordRange) {return null;}
+					if (!wordRange) return null;
 
 					const word = document.getText(wordRange);
 					const sectionInfo = iniManager.findSection(word);
@@ -443,7 +480,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				const keyPart = lineText.substring(0, equalsIndex).trim();
 				const keyRange = new vscode.Range(position.line, line.firstNonWhitespaceCharacterIndex, position.line, equalsIndex);
 
-				if (!keyRange.contains(position)) {return null;}
+				if (!keyRange.contains(position)) return null;
 
 				let currentSectionName: string | null = null;
 				for (let i = position.line; i >= 0; i--) {
@@ -454,7 +491,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						break;
 					}
 				}
-				if (!currentSectionName) {return null;}
+				if (!currentSectionName) return null;
 		
 				const markdown = new vscode.MarkdownString("", true);
 				markdown.isTrusted = true;
@@ -480,39 +517,44 @@ export async function activate(context: vscode.ExtensionContext) {
 					}
 				}
 
-				// --- 模块2: 查找并附加覆盖信息 (使用正确的递归实例查找) ---
-				const parentInstanceName = iniManager.getInheritance(currentSectionName);
-				if (parentInstanceName) {
-					const parentKeyInfo = iniManager.findKeyLocationRecursive(parentInstanceName, keyPart); 
+				// --- 模块2: 查找并附加覆盖信息 ---
+				const parentName = iniManager.getInheritance(currentSectionName);
+				if (parentName) {
+					// 仅当类型系统认为这是一个可覆盖的键时，才去实例中查找
+					const parentTypeName = iniManager.getTypeForSection(parentName);
+					const parentKeys = schemaManager.getAllKeysForType(parentTypeName);
+
+					if (parentKeys.has(keyPart)) {
+						const parentKeyInfo = iniManager.findKeyLocationRecursive(parentName, keyPart); 
 					
-					if (parentKeyInfo && parentKeyInfo.location && parentKeyInfo.lineText && parentKeyInfo.definer) {
-						if(hasContent) {markdown.appendMarkdown('\n\n---\n\n');}
+						if (parentKeyInfo && parentKeyInfo.location && parentKeyInfo.lineText && parentKeyInfo.definer) {
+							if(hasContent) markdown.appendMarkdown('\n\n---\n\n');
 
-						const lineNum = parentKeyInfo.location.range.start.line + 1;
-						const fileName = path.basename(parentKeyInfo.location.uri.fsPath);
+							const lineNum = parentKeyInfo.location.range.start.line + 1;
+							const fileName = path.basename(parentKeyInfo.location.uri.fsPath);
 
-						markdown.appendMarkdown(`此键覆盖了基类的值 **${fileName}**:L${lineNum}`);
-						
-						const parentValueMatch = parentKeyInfo.lineText.match(/=\s*(.*)/);
-						const parentValueRaw = parentValueMatch ? parentValueMatch[1].trim() : '';
-						const parentValue = parentValueRaw.split(';')[0].trim();
+							markdown.appendMarkdown(`此键覆盖了基类的值 **${fileName}**:L${lineNum}`);
+							
+							const parentValueMatch = parentKeyInfo.lineText.match(/=\s*(.*)/);
+							const parentValueRaw = parentValueMatch ? parentValueMatch[1].trim() : '';
+							const parentValue = parentValueRaw.split(';')[0].trim();
 
-						markdown.appendCodeblock(`[${parentKeyInfo.definer}]\n${keyPart}=${parentValue || ''}`, 'ini');
+							markdown.appendCodeblock(`[${parentKeyInfo.definer}]\n${keyPart}=${parentValue || ''}`, 'ini');
 
-						const args = {
-							uri: parentKeyInfo.location.uri.toString(),
-							position: parentKeyInfo.location.range.start
-						};
-						const commandUri = vscode.Uri.parse(`command:ra2-ini-intellisense.jumpToOverride?${encodeURIComponent(JSON.stringify(args))}`);
-						markdown.appendMarkdown(`[$(go-to-file) 跳转到父类定义](${commandUri})`);
-						hasContent = true;
+							const args = {
+								uri: parentKeyInfo.location.uri.toString(),
+								position: parentKeyInfo.location.range.start
+							};
+							const commandUri = vscode.Uri.parse(`command:ra2-ini-intellisense.jumpToOverride?${encodeURIComponent(JSON.stringify(args))}`);
+							markdown.appendMarkdown(`[$(go-to-file) 跳转到父类定义](${commandUri})`);
+							hasContent = true;
+						}
 					}
 				}
 
 				return hasContent ? new vscode.Hover(markdown, keyRange) : null;
 			}
 		}),
-
 		// 自动补全
 		vscode.languages.registerCompletionItemProvider(selector, {
 			async provideCompletionItems(document, position, token, context) {
@@ -529,14 +571,14 @@ export async function activate(context: vscode.ExtensionContext) {
 						break;
 					}
 				}
-				if (!currentSectionName) {return new vscode.CompletionList([], false);}
+				if (!currentSectionName) return new vscode.CompletionList([], false);
 		
 				const typeName = iniManager.getTypeForSection(currentSectionName);
-				if (!typeName) {return new vscode.CompletionList([], false);}
+				if (!typeName) return new vscode.CompletionList([], false);
 
 				if (isKeyCompletion) {
 					const keys = schemaManager.getAllKeysForType(typeName);
-					if (keys.size === 0) {return new vscode.CompletionList([], false);}
+					if (keys.size === 0) return new vscode.CompletionList([], false);
 			
 					const items = Array.from(keys.entries()).map(([key, valueType]) => {
 						const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
@@ -573,7 +615,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						if (targetRegistry) {
 							const ids = iniManager.getValuesForRegistry(targetRegistry);
 							ids.forEach(id => suggestions.push(new vscode.CompletionItem(id, vscode.CompletionItemKind.EnumMember)));
-							if (suggestions.length > 0) {return new vscode.CompletionList(suggestions, true);}
+							if (suggestions.length > 0) return new vscode.CompletionList(suggestions, true);
 						}
 					}
 					
@@ -609,7 +651,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				for (let i = 0; i < document.lineCount; i++) {
 					const line = document.lineAt(i);
 					const equalsIndex = line.text.indexOf('=');
-					if (equalsIndex === -1) {continue;}
+					if (equalsIndex === -1) continue;
 
 					let currentSectionName: string | null = null;
 					for (let j = i; j >= 0; j--) {
@@ -620,7 +662,7 @@ export async function activate(context: vscode.ExtensionContext) {
 							break;
 						}
 					}
-					if (!currentSectionName) {continue;}
+					if (!currentSectionName) continue;
 					
 					const currentKey = line.text.substring(0, equalsIndex).trim();
 					const typeName = iniManager.getTypeForSection(currentSectionName);

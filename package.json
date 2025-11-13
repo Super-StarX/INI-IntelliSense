@@ -120,6 +120,30 @@
           },
           "description": "要校验的文件列表。推荐通过点击状态栏图标或使用 '管理 INI Validator' 命令进行交互式编辑。"
         },
+        "ra2-ini-intellisense.indexing.includePatterns": {
+          "type": "array",
+          "default": [
+            "rules*.ini",
+            "art*.ini",
+            "ai*.ini",
+            "sound*.ini",
+            "eva*.ini",
+            "theme*.ini",
+            "ui*.ini"
+          ],
+          "description": "一个Glob模式数组，用于指定哪些INI文件应该被插件索引。只有匹配此列表中至少一个模式的文件才会被处理。示例: ['maps/**/*.ini'] 用于索引所有maps子目录下的ini文件。",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ra2-ini-intellisense.indexing.excludePatterns": {
+          "type": "array",
+          "default": [],
+          "description": "一个Glob模式数组，用于从已包含的文件中排除特定的文件或目录。例如: ['**/*_backup.ini']。",
+          "items": {
+            "type": "string"
+          }
+        },
         "ra2-ini-intellisense.dontAskToConfigureValidator": {
           "type": "boolean",
           "default": false,

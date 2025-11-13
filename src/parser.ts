@@ -221,20 +221,21 @@ export class INIManager {
     }
 
     /**
-     * 在所有文件中查找一个节的定义。
+     * 在所有文件中查找一个节的所有定义片段。
      * @param name 节名
-     * @returns 包含文件路径和内容的对象，如果未找到则返回 null
+     * @returns 包含所有定义了该节的文件信息的数组
      */
-    findSection(name: string): { file: string; content: string } | null {
+    findSection(name: string): { file: string; content: string }[] {
+        const results: { file: string; content: string }[] = [];
         const escapedSectionName = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
         const sectionRegex = new RegExp(`^\\[${escapedSectionName}\\]`, 'im');
     
         for (const [filePath, { content }] of this.files.entries()) {
             if (sectionRegex.test(content)) {
-                return { file: filePath, content };
+                results.push({ file: filePath, content });
             }
         }
-        return null;
+        return results;
     }
 
     /**
@@ -257,50 +258,54 @@ export class INIManager {
     }
     
     /**
-     * 在整个工作区中查找特定节内某个键的精确位置和行文本。
+     * 在整个工作区中查找特定节内某个键的首次出现位置和行文本。
      * @param sectionName 要搜索的节名
      * @param keyName 要查找的键名
      * @returns 包含位置和行文本的对象，如果未找到则返回 null
      */
     public findKeyLocation(sectionName: string, keyName: string): { location: vscode.Location; lineText: string } | null {
-        const sectionInfo = this.findSection(sectionName);
-        if (!sectionInfo) {
+        const sectionInfos = this.findSection(sectionName);
+        if (sectionInfos.length === 0) {
             return null;
         }
 
-        const lines = sectionInfo.content.split(/\r?\n/);
-        let inSection = false;
-        
-        const escapeRegex = (str: string) => str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const sectionRegex = new RegExp(`^\\[${escapeRegex(sectionName)}\\]`);
-        const keyRegex = new RegExp(`^\\s*${escapeRegex(keyName)}\\s*=`);
-        const nextSectionRegex = /^\s*\[.+\]/;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            const trimmedLine = line.trim();
-            if (sectionRegex.test(trimmedLine)) {
-                inSection = true;
-                continue;
-            }
+        for (const sectionInfo of sectionInfos) {
+            const lines = sectionInfo.content.split(/\r?\n/);
+            let inSection = false;
             
-            if (inSection) {
-                if (keyRegex.test(line)) {
-                    const keyStartIndex = line.indexOf(keyName);
-                    const range = new vscode.Range(i, keyStartIndex, i, keyStartIndex + keyName.length);
-                    const location = new vscode.Location(vscode.Uri.file(sectionInfo.file), range);
-                    return { location, lineText: line.trim() };
+            const escapeRegex = (str: string) => str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            const sectionRegex = new RegExp(`^\\[${escapeRegex(sectionName)}\\]`);
+            const keyRegex = new RegExp(`^\\s*${escapeRegex(keyName)}\\s*=`);
+            const nextSectionRegex = /^\s*\[.+\]/;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const trimmedLine = line.trim();
+                if (sectionRegex.test(trimmedLine)) {
+                    inSection = true;
+                    continue;
                 }
-                if (nextSectionRegex.test(trimmedLine)) {
-                    break;
+                
+                if (inSection) {
+                    if (keyRegex.test(line)) {
+                        const keyStartIndex = line.indexOf(keyName);
+                        const range = new vscode.Range(i, keyStartIndex, i, keyStartIndex + keyName.length);
+                        const location = new vscode.Location(vscode.Uri.file(sectionInfo.file), range);
+                        return { location, lineText: line.trim() };
+                    }
+                    if (nextSectionRegex.test(trimmedLine)) {
+                        // 在同一个文件内，如果遇到了下一个节，就停止对这个文件的搜索
+                        inSection = false; 
+                    }
                 }
             }
         }
+        
         return null;
     }
 
     /**
-     * 递归地向上查找一个键在继承链中的首次定义位置。
+     * 递归地向上查找一个键在实例继承链中的首次定义位置。
      * @param sectionName 起始节名
      * @param keyName 要查找的键名
      * @returns 包含最终位置、行文本和定义节名的对象
