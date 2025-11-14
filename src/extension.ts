@@ -9,7 +9,7 @@ import { DiagnosticEngine } from './diagnostics/engine';
 import { ErrorCode } from './diagnostics/error-codes';
 import { IniDiagnostic } from './diagnostics/diagnostic';
 import { OverrideDecorator } from './override-decorator';
-import { localize } from './i18n';
+import { localize, initializeNls } from './i18n';
 
 let diagnostics: vscode.DiagnosticCollection;
 const LANGUAGE_ID = 'ra2-ini';
@@ -21,6 +21,7 @@ const LANGUAGE_ID = 'ra2-ini';
  * @param context 扩展的上下文，用于管理订阅和状态。
  */
 export async function activate(context: vscode.ExtensionContext) {
+    initializeNls(context);
 	// 创建一个用于输出调试信息的专用输出频道
 	const outputChannel = vscode.window.createOutputChannel(localize('output.channel.name', 'INI IntelliSense'));
 	

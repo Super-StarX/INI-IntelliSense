@@ -1,15 +1,67 @@
-import * as nls from 'vscode-nls';
+import * as path from 'path';
+import * as fs from 'fs';
+import { ExtensionContext } from 'vscode';
 
-// 在此模块中对 vscode-nls 进行一次性配置。
-// 当首次调用 loadMessageBundle() 时，此配置将生效。
-// 这使得我们可以在项目的任何地方导入并使用一个已配置好的 localize 函数。
-nls.config({ messageFormat: nls.MessageFormat.file })();
+// 这个对象将存储最终合并后的所有语言字符串。
+let messages: { [key: string]: string } = {};
 
 /**
- * 导出一个本地化函数，供整个扩展项目使用。
- * 它会自动加载与当前 VS Code 显示语言匹配的语言包文件。
- * @example
- * localize('key.hello', 'Hello World!');
- * localize('key.greeting', 'Hello {0}!', 'John');
+ * 在扩展激活时必须调用的初始化函数。
+ * 这个函数现在将完全负责加载和准备所有的翻译字符串。
+ * @param context 扩展上下文
  */
-export const localize = nls.loadMessageBundle();
+export function initializeNls(context: ExtensionContext) {
+    // 1. 获取当前 VS Code 的语言环境，如果获取失败则默认为 'en'
+    const locale = process.env.VSCODE_NLS_CONFIG ? JSON.parse(process.env.VSCODE_NLS_CONFIG).locale : 'en';
+    
+    const bundleBasePath = path.join(context.extensionPath, 'dist', 'i18n', 'bundle.nls');
+    const defaultMessagesPath = `${bundleBasePath}.json`;
+    const languageMessagesPath = `${bundleBasePath}.${locale}.json`;
+
+    // 2. 加载默认的英文语言包作为回退基础
+    try {
+        if (fs.existsSync(defaultMessagesPath)) {
+            const content = fs.readFileSync(defaultMessagesPath, 'utf8');
+            messages = JSON.parse(content);
+        }
+    } catch (e) {
+        console.error('[NLS] Failed to load or parse default language bundle.', e);
+    }
+    
+    // 3. 如果当前不是英文，尝试加载特定语言包并与基础包合并
+    if (locale !== 'en') {
+        try {
+            if (fs.existsSync(languageMessagesPath)) {
+                const content = fs.readFileSync(languageMessagesPath, 'utf8');
+                const localizedMessages = JSON.parse(content);
+                // 使用 Object.assign 将翻译的字符串合并到 messages 对象中。
+                // 这会用中文值覆盖同名的英文键，同时保留所有未被翻译的键的英文值。
+                Object.assign(messages, localizedMessages);
+            }
+        } catch (e) {
+            console.error(`[NLS] Failed to load or parse language bundle for locale '${locale}'.`, e);
+        }
+    }
+}
+
+/**
+ * 本地化一个字符串。
+ * @param key 字符串的唯一键。
+ * @param _message 默认的英文消息（只在提取时使用，运行时被忽略）。
+ * @param args 用于替换占位符（如 {0}, {1}）的参数。
+ */
+export function localize(key: string, _message: string, ...args: any[]): string {
+    const localized = messages[key];
+    
+    if (localized === undefined) {
+        // 如果在语言包中找不到对应的键，返回一个带 key 的特殊字符串。
+        // 这有助于在开发过程中快速发现丢失的翻译键。
+        return `!${key}!`;
+    }
+
+    // 处理占位符，例如 "{0}", "{1}"
+    return localized.replace(/\{(\d+)\}/g, (match, index) => {
+        const argIndex = parseInt(index, 10);
+        return args[argIndex] !== undefined ? String(args[argIndex]) : match;
+    });
+}
