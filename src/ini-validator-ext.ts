@@ -18,16 +18,16 @@ const CONFIG_KEY_DONT_ASK = 'ra2-ini-intellisense.dontAskToConfigureValidator';
  * 封装与 INIValidator.exe 交互的所有逻辑
  */
 export class INIValidatorExt {
-
     private diagnostics: vscode.DiagnosticCollection;
-    private statusBarItem: vscode.StatusBarItem;
-    private status: ValidatorStatus = 'unconfigured';
+    public status: ValidatorStatus = 'unconfigured';
+    public statusDetails: string = '';
     private exePath: string | undefined;
+
+    private _onDidChangeStatus = new vscode.EventEmitter<void>();
+    public readonly onDidChangeStatus = this._onDidChangeStatus.event;
 
     constructor(diagnostics: vscode.DiagnosticCollection) {
         this.diagnostics = diagnostics;
-        this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-        this.statusBarItem.command = 'ra2-ini-intellisense.manageValidator';
     }
 
     /**
@@ -35,21 +35,16 @@ export class INIValidatorExt {
      * @param context 扩展上下文
      */
     public async initialize(context: vscode.ExtensionContext) {
-        context.subscriptions.push(this.statusBarItem);
-
-        // 监听配置变更, 以便实时更新状态
         context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
             if (e.affectsConfiguration(CONFIG_SECTION)) {
                 await this.validatePath();
             }
         }));
 
-        // 注册核心管理命令, 点击状态栏时触发
         context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.manageValidator', () => {
-            this.showManagementQuickPick();
+            this.showQuickPick();
         }));
 
-        // 注册手动执行校验的命令
         context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.runValidator', () => {
             this.runValidatorCommand();
         }));
@@ -103,7 +98,6 @@ export class INIValidatorExt {
             description: localize('validator.manageFiles.item.description', 'Click to edit or delete this entry')
         });
 
-        // 构造菜单项, 包括 "添加" 和所有现有条目
         const items: vscode.QuickPickItem[] = [
             { label: localize('validator.manageFiles.add.label', '$(add) Add New File Entry...'), description: localize('validator.manageFiles.add.description', 'Add a new key-value pair to the [Files] section') },
             ...Object.entries(files).map(([key, value]) => toQuickPickItem(key, value))
@@ -115,7 +109,6 @@ export class INIValidatorExt {
         }
 
         if (selection.label.startsWith('$(add)')) {
-            // 添加新条目
             const key = await vscode.window.showInputBox({ prompt: localize('validator.manageFiles.inputKey.prompt', 'Enter the key name (e.g., rulesext)') });
             if (!key) {
                 return;
@@ -126,7 +119,6 @@ export class INIValidatorExt {
             }
             files[key] = value;
         } else {
-            // 编辑或删除现有条目
             const [key] = selection.label.substring(1).split(']')[0];
             const action = await vscode.window.showQuickPick([localize('validator.manageFiles.action.edit', 'Edit Value'), localize('validator.manageFiles.action.delete', 'Delete Entry')], { placeHolder: localize('validator.manageFiles.action.placeholder', 'Action for "{0}"', selection.label) });
             if (!action) {
@@ -149,7 +141,7 @@ export class INIValidatorExt {
     /**
      * 显示管理验证器的快速选择菜单
      */
-    private async showManagementQuickPick() {
+    public async showQuickPick() {
         const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
         const notSetDescription = localize('validator.quickPick.notSet', 'Not currently set');
         const items: vscode.QuickPickItem[] = [];
@@ -200,30 +192,14 @@ export class INIValidatorExt {
     }
 
     /**
-     * 更新验证器状态并刷新状态栏UI
+     * 更新验证器状态并触发事件
      * @param status 新的状态
-     * @param details 附加信息, 用于悬停提示
+     * @param details 附加信息
      */
     private updateStatus(status: ValidatorStatus, details: string = '') {
         this.status = status;
-        switch (status) {
-            case 'ready':
-                this.statusBarItem.text = `$(check) INI Validator`;
-                this.statusBarItem.tooltip = localize('validator.status.ready', 'Ready: {0}\nClick to manage.', this.exePath);
-                this.statusBarItem.backgroundColor = undefined;
-                break;
-            case 'invalid':
-                this.statusBarItem.text = `$(error) INI Validator`;
-                this.statusBarItem.tooltip = localize('validator.status.invalid', 'Error: The configured path is invalid. Click to fix.\nDetails: {0}', details);
-                this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
-                break;
-            case 'unconfigured':
-                this.statusBarItem.text = `$(warning) INI Validator`;
-                this.statusBarItem.tooltip = localize('validator.status.unconfigured', 'Not configured. Click to set up.');
-                this.statusBarItem.backgroundColor = undefined;
-                break;
-        }
-        this.statusBarItem.show();
+        this.statusDetails = details;
+        this._onDidChangeStatus.fire();
     }
 
     /**
@@ -335,7 +311,6 @@ export class INIValidatorExt {
             if (!error.filename || error.line === undefined || !error.message) {
                 continue;
             }
-            // IV返回的行号可能是从1开始, VS Code需要从0开始
             const line = Math.max(0, error.line - 1);
             const diagnostic = new vscode.Diagnostic(new vscode.Range(line, 0, line, Number.MAX_VALUE), error.message, this.toDiagnosticSeverity(error.level));
             diagnostic.source = 'INI Validator';

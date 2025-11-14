@@ -14,7 +14,8 @@ export function initializeNls(context: ExtensionContext) {
     // 1. 获取当前 VS Code 的语言环境，如果获取失败则默认为 'en'
     const locale = process.env.VSCODE_NLS_CONFIG ? JSON.parse(process.env.VSCODE_NLS_CONFIG).locale : 'en';
     
-    const bundleBasePath = path.join(context.extensionPath, 'dist', 'i18n', 'bundle.nls');
+    // 修复路径，确保在打包后也能正确找到i18n文件
+    const bundleBasePath = path.join(context.extensionPath, 'i18n', 'bundle.nls');
     const defaultMessagesPath = `${bundleBasePath}.json`;
     const languageMessagesPath = `${bundleBasePath}.${locale}.json`;
 

@@ -9,6 +9,7 @@ import { DiagnosticEngine } from './diagnostics/engine';
 import { ErrorCode } from './diagnostics/error-codes';
 import { IniDiagnostic } from './diagnostics/diagnostic';
 import { OverrideDecorator } from './override-decorator';
+import { WelcomePanel } from './welcome-panel';
 import { localize, initializeNls } from './i18n';
 
 let diagnostics: vscode.DiagnosticCollection;
@@ -22,10 +23,8 @@ const LANGUAGE_ID = 'ra2-ini';
  */
 export async function activate(context: vscode.ExtensionContext) {
     initializeNls(context);
-	// 创建一个用于输出调试信息的专用输出频道
 	const outputChannel = vscode.window.createOutputChannel(localize('output.channel.name', 'INI IntelliSense'));
 	
-	// 初始化核心管理器
 	const iniManager = new INIManager();
 	const outlineProvider = new INIOutlineProvider(context, iniManager);
 	const schemaManager = new SchemaManager();
@@ -34,35 +33,29 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const selector = { language: LANGUAGE_ID };
 
-	// 注册高性能的语义化高亮提供器
 	context.subscriptions.push(
 		vscode.languages.registerDocumentSemanticTokensProvider(selector, new IniSemanticTokensProvider(), legend)
 	);
 
-	// 初始化继承覆盖装饰器
 	const overrideDecorator = new OverrideDecorator(context, iniManager, schemaManager);
 	context.subscriptions.push(overrideDecorator);
 
-	// 创建并配置状态栏图标，用于显示和管理 Schema 文件
-	const schemaStatusbar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
-	schemaStatusbar.command = 'ra2-ini-intellisense.configureSchemaPath';
-	context.subscriptions.push(schemaStatusbar);
+	// 创建一个统一的状态栏入口
+	const mainStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+	mainStatusBar.command = 'ra2-ini-intellisense.showMainQuickPick';
+	context.subscriptions.push(mainStatusBar);
 
-	// 注册诊断集合，用于在编辑器中显示错误和警告
 	diagnostics = vscode.languages.createDiagnosticCollection('ini');
 	const iniValidator = new INIValidatorExt(diagnostics);
 	await iniValidator.initialize(context);
+	// 监听校验器状态变化，以更新统一状态栏
+	context.subscriptions.push(iniValidator.onDidChangeStatus(() => updateMainStatus()));
 
 	context.subscriptions.push(diagnostics);
 
-	// 注册大纲视图及其刷新命令
 	context.subscriptions.push(vscode.window.createTreeView('ini-outline', { treeDataProvider: outlineProvider }));
     context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.refreshOutline', () => outlineProvider.refresh()));
 
-	/**
-	 * 扫描工作区内的所有 .ini 文件，并建立索引。
-	 * 这是实现跳转、引用查找和类型推断等功能的数据基础。
-	 */
 	async function indexWorkspaceFiles() {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
 		const includePatterns = config.get<string[]>('indexing.includePatterns', []);
@@ -78,8 +71,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
 		if (!searchRoot || includePatterns.length === 0) {
 			console.log('INI IntelliSense: 未配置搜索路径或包含模式，跳过文件索引。');
-			await iniManager.indexFiles([]); // 清空并重置索引
+			await iniManager.indexFiles([]);
 			outlineProvider.refresh();
+			updateMainStatus();
 			return;
 		}
 
@@ -91,81 +85,123 @@ export async function activate(context: vscode.ExtensionContext) {
 		const indexedFiles = Array.from(iniManager.files.keys()).map(p => path.basename(p));
 		console.log(`INI IntelliSense: 已索引 ${iniManager.files.size} 个INI文件: [${indexedFiles.join(', ')}]`);
 		outlineProvider.refresh();
+		updateMainStatus();
 	}
+	
+	function updateMainStatus() {
+		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
+		const modPath = config.get<string>('validationFolderPath');
+		const dictPath = config.get<string>('schemaFilePath');
 
-	/**
-	 * 根据 Schema 文件的加载状态，更新状态栏图标的显示。
-	 * @param loadedPath 已加载的 Schema 文件路径，如果未加载则为 null。
-	 */
-	function updateSchemaStatus(loadedPath: string | null) {
-		if (loadedPath) {
-			schemaStatusbar.text = `$(check) INI Schema`;
-			schemaStatusbar.tooltip = localize('statusbar.schema.loaded.tooltip', 'INI Schema Loaded: {0}\nClick to change the schema file.', loadedPath);
-			schemaStatusbar.backgroundColor = undefined;
+		if (!modPath) {
+			mainStatusBar.text = `$(folder) INI: Set Project Root`;
+			mainStatusBar.tooltip = "Mod根目录未设置。点击进行配置。";
+			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+		} else if (!dictPath) {
+			mainStatusBar.text = `$(book) INI: Set Dictionary`;
+			mainStatusBar.tooltip = "INI Dictionary文件未设置。点击进行配置。";
+			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+		} else if (iniValidator.status === 'invalid') {
+			mainStatusBar.text = `$(error) INI Validator`;
+			mainStatusBar.tooltip = `INI Validator配置错误: ${iniValidator.statusDetails}`;
+			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 		} else {
-			schemaStatusbar.text = `$(warning) INI Schema`;
-			schemaStatusbar.tooltip = localize('statusbar.schema.notLoaded.tooltip', 'INI Schema not loaded. Click to select your INICodingCheck.ini file.');
-			schemaStatusbar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+			mainStatusBar.text = `$(check) INI IntelliSense`;
+			let tooltip = `INI IntelliSense: Ready\n- Project: ${path.basename(modPath)}\n- Dictionary: ${path.basename(dictPath)}`;
+			if(iniValidator.status === 'ready') {
+				tooltip += `\n- Validator: Ready`;
+			} else {
+				tooltip += `\n- Validator: Not Configured`;
+			}
+			mainStatusBar.tooltip = tooltip;
+			mainStatusBar.backgroundColor = undefined;
 		}
-		schemaStatusbar.show();
+		mainStatusBar.show();
 	}
 
-	/**
-	 * 从用户配置中加载 Schema 文件。
-	 * 它会优先使用明确指定的路径，如果未指定，则尝试从 INIValidator.exe 的路径推断。
-	 */
 	async function loadSchemaFromConfiguration() {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
-		let loadedPath: string | null = null;
 		let schemaPath = config.get<string | null>('schemaFilePath', null);
-		const isExplicitPath = !!schemaPath;
-
-		if (!schemaPath) {
-			const exePath = config.get<string | null>('exePath', null);
-			if (exePath) {
-				const exeDir = path.dirname(exePath);
-				schemaPath = path.join(exeDir, 'INICodingCheck.ini');
-			}
-		}
-
+		
 		if (schemaPath) {
 			try {
 				const schemaUri = vscode.Uri.file(schemaPath);
 				const schemaContentBytes = await vscode.workspace.fs.readFile(schemaUri);
 				const schemaContent = Buffer.from(schemaContentBytes).toString('utf-8');
 				schemaManager.loadSchema(schemaContent, schemaPath);
-				loadedPath = schemaPath;
-				if (isExplicitPath) {
-					 vscode.window.showInformationMessage(localize('schema.load.success', 'Custom INI schema file loaded successfully: {0}', schemaPath));
-				}
 			} catch (error) {
 				schemaManager.clearSchema();
-				if (isExplicitPath) {
-					vscode.window.showErrorMessage(localize('schema.load.failure', 'Failed to load the specified INI schema file: {0}.', schemaPath));
-				}
+				vscode.window.showErrorMessage(localize('schema.load.failure', 'Failed to load the specified INI Dictionary file: {0}.', schemaPath));
 			}
 		} else {
 			schemaManager.clearSchema();
 		}
 		
-		updateSchemaStatus(loadedPath);
-		await indexWorkspaceFiles();
+		await indexWorkspaceFiles(); // 索引依赖于schema，所以放在这里
 	}
 	
-	// 注册命令：配置 Schema 文件路径
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.configureSchemaPath', async () => {
 		const options: vscode.OpenDialogOptions = {
 			canSelectMany: false,
-			openLabel: localize('command.configureSchema.openLabel', 'Select INICodingCheck.ini'),
+			openLabel: localize('command.configureSchema.openLabel', 'Select INIDictionary.ini'),
 			filters: { [localize('command.configureSchema.filterLabel', 'INI Files')]: ['ini'] }
 		};
 		const fileUri = await vscode.window.showOpenDialog(options);
 		if (fileUri && fileUri[0]) {
-			await vscode.workspace.getConfiguration('ra2-ini-intellisense').update('schemaFilePath', fileUri[0].fsPath, vscode.ConfigurationTarget.Global);
+			await vscode.workspace.getConfiguration('ra2-ini-intellisense').update('schemaFilePath', fileUri[0].fsPath, vscode.ConfigurationTarget.Workspace);
+		}
+	}));
+	
+	async function configureModPath() {
+        const options: vscode.OpenDialogOptions = {
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: '选择Mod根目录'
+        };
+        const folderUri = await vscode.window.showOpenDialog(options);
+        if (folderUri && folderUri[0]) {
+            await vscode.workspace.getConfiguration('ra2-ini-intellisense').update('validationFolderPath', folderUri[0].fsPath, vscode.ConfigurationTarget.Workspace);
+        }
+    }
+
+	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.showWelcomePage', () => {
+		WelcomePanel.createOrShow(context);
+	}));
+
+	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.showMainQuickPick', async () => {
+		const items: vscode.QuickPickItem[] = [
+			{ label: "$(rocket) 显示设置向导", description: "重新打开首次配置页面" },
+			{ label: "$(folder) 设置Mod根目录...", description: "更改当前工作区的文件索引根目录" },
+			{ label: "$(book) 设置INI Dictionary文件...", description: "更改用于智能提示的规则文件" },
+			{ label: "$(bug) 管理INI Validator...", description: "配置外部校验工具" },
+			{ label: "$(refresh) 重新索引工作区", description: "手动强制刷新所有文件的索引" },
+			{ label: "$(json) 打开插件设置 (JSON)", description: "查看所有高级配置" },
+		];
+		
+		const selection = await vscode.window.showQuickPick(items, {
+			placeHolder: "INI IntelliSense 主菜单"
+		});
+
+		if (!selection) return;
+
+		if (selection.label.includes("设置向导")) {
+			vscode.commands.executeCommand('ra2-ini-intellisense.showWelcomePage');
+		} else if (selection.label.includes("Mod根目录")) {
+			await configureModPath();
+		} else if (selection.label.includes("INI Dictionary")) {
+			vscode.commands.executeCommand('ra2-ini-intellisense.configureSchemaPath');
+		} else if (selection.label.includes("INI Validator")) {
+			iniValidator.showQuickPick();
+		} else if (selection.label.includes("重新索引")) {
+			await indexWorkspaceFiles();
+			vscode.window.showInformationMessage("工作区已重新索引。");
+		} else if (selection.label.includes("插件设置")) {
+			vscode.commands.executeCommand('workbench.action.openSettings', 'ra2-ini-intellisense');
 		}
 	}));
 
-	// 注册内部命令：用于从悬浮提示中点击跳转
+
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.jumpToOverride', async (args) => {
 		const { uri, position } = args;
 		const targetUri = vscode.Uri.parse(uri);
@@ -177,12 +213,9 @@ export async function activate(context: vscode.ExtensionContext) {
 		editor.revealRange(new vscode.Range(targetPosition, targetPosition), vscode.TextEditorRevealType.InCenter);
 	}));
 
-
-	// 首次激活时，立即加载一次 Schema
 	await loadSchemaFromConfiguration();
 	overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
 
-	// 注册并管理代码透镜 (CodeLens) 提供程序
 	let codeLensProvider: vscode.Disposable | undefined;
 	function updateCodeLensProvider() {
 		const isEnabled = vscode.workspace.getConfiguration('ra2-ini-intellisense').get('codeLens.enabled');
@@ -234,51 +267,30 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 	}
 
-	// 监听配置变更，动态更新功能
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
-		let needsFullScan = false;
-		let needsFullDiagnosticUpdate = false;
-		let needsDecoratorUpdate = false;
-
-		if (e.affectsConfiguration('ra2-ini-intellisense.schemaFilePath') || e.affectsConfiguration('ra2-ini-intellisense.exePath')) {
+		if (e.affectsConfiguration('ra2-ini-intellisense')) {
 			await loadSchemaFromConfiguration();
-			needsFullDiagnosticUpdate = true;
-			needsDecoratorUpdate = true;
-		}
-		if(e.affectsConfiguration('ra2-ini-intellisense.indexing')) {
-			needsFullScan = true;
-		}
-		if(needsFullScan) {
-			await indexWorkspaceFiles();
-			needsFullDiagnosticUpdate = true;
-			needsDecoratorUpdate = true;
-		}
-		if (e.affectsConfiguration('ra2-ini-intellisense.codeLens.enabled')) {
-			updateCodeLensProvider();
-		}
-		if (e.affectsConfiguration('ra2-ini-intellisense.diagnostics')) {
-			needsFullDiagnosticUpdate = true;
-		}
-		if (needsFullDiagnosticUpdate) {
+			updateMainStatus();
+
+			if (e.affectsConfiguration('ra2-ini-intellisense.codeLens.enabled')) {
+				updateCodeLensProvider();
+			}
+			if (e.affectsConfiguration('ra2-ini-intellisense.decorations')) {
+				overrideDecorator.reload();
+			}
+			
 			vscode.workspace.textDocuments.forEach(doc => triggerUpdateDiagnostics(doc));
-		}
-		if (needsDecoratorUpdate) {
 			overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
-		}
-		if (e.affectsConfiguration('ra2-ini-intellisense.decorations')) {
-			overrideDecorator.reload();
 		}
 	}));
 	updateCodeLensProvider();
 
-	// 监听文件系统事件，保持索引最新
 	const watcher = vscode.workspace.createFileSystemWatcher('**/*.ini');
 	context.subscriptions.push(watcher);
 	
 	const onFileChange = async (uri: vscode.Uri) => {
 		console.log(`INI 文件变更: ${uri.fsPath}, 正在增量更新索引...`);
-		await iniManager.updateFile(uri); // 增量更新
-		// 重新校验所有打开的文档，因为一个文件的变更可能影响其他文件
+		await iniManager.updateFile(uri);
 		vscode.workspace.textDocuments.forEach(doc => {
 			if (doc.languageId === LANGUAGE_ID) {
 				triggerUpdateDiagnostics(doc);
@@ -290,7 +302,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const onFileDelete = (uri: vscode.Uri) => {
 		console.log(`INI 文件删除: ${uri.fsPath}, 正在移除索引...`);
-		iniManager.removeFile(uri); // 增量移除
+		iniManager.removeFile(uri);
 		vscode.workspace.textDocuments.forEach(doc => {
 			if (doc.languageId === LANGUAGE_ID) {
 				triggerUpdateDiagnostics(doc);
@@ -300,10 +312,9 @@ export async function activate(context: vscode.ExtensionContext) {
 	};
 
 	watcher.onDidCreate(onFileChange);
-	watcher.onDidChange(onFileChange); // 通常由保存触发
+	watcher.onDidChange(onFileChange);
 	watcher.onDidDelete(onFileDelete);
 
-	// 注册调试命令：显示当前上下文的详细调试信息
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.showDebugInfo', () => {
 		const editor = vscode.window.activeTextEditor;
 		if (!editor) {
@@ -372,10 +383,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const diagnosticDebounceTimers = new Map<string, NodeJS.Timeout>();
 
-	/**
-	 * 触发诊断更新，使用防抖机制以避免在快速输入时造成性能问题。
-	 * @param document 需要更新诊断的文本文档
-	 */
 	const triggerUpdateDiagnostics = (document: vscode.TextDocument) => {
 		const documentUriString = document.uri.toString();
 		if (diagnosticDebounceTimers.has(documentUriString)) {
@@ -384,17 +391,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
 		diagnosticDebounceTimers.set(documentUriString, setTimeout(() => {
 			diagnosticDebounceTimers.delete(documentUriString);
-			// 当防抖结束后，我们仍然不直接调用诊断，而是将其放入事件队列的末尾
-			// 这样可以确保例如高亮等更高优先级的UI任务先执行
 			setTimeout(() => updateDiagnostics(document), 0);
 		}, 300));
 	};
 
 
-    /**
-     * 实际执行诊断更新的函数。
-     * @param document 需要更新诊断的文本文档
-     */
     const updateDiagnostics = (document: vscode.TextDocument) => {
         if (document.languageId !== LANGUAGE_ID || document.isClosed) {
             return;
@@ -417,19 +418,34 @@ export async function activate(context: vscode.ExtensionContext) {
 		diagnostics.set(document.uri, [...externalDiagnostics, ...internalDiagnostics]);
     };
 
-	// 监听文档事件，以非阻塞方式实时更新索引和诊断
     vscode.workspace.onDidChangeTextDocument(async event => {
 		if (event.document.languageId === LANGUAGE_ID) {
-			// 1. 立即触发增量索引更新（这个操作被设计得很快）
 			await iniManager.updateFile(event.document.uri, event.document.getText());
-			// 2. 使用防抖机制触发诊断更新（这个操作可能较慢）
 			triggerUpdateDiagnostics(event.document);
 		}
 	});
 
     vscode.workspace.onDidOpenTextDocument(document => {
 		if (document.languageId === LANGUAGE_ID) {
-			// 确保新打开的文件被索引
+			const hasShownWelcome = context.workspaceState.get<boolean>('ini.welcome.shown');
+			if (!hasShownWelcome) {
+				const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
+				const modPath = config.get<string>('validationFolderPath');
+				if (!modPath) {
+					vscode.window.showInformationMessage(
+						"欢迎使用 INI IntelliSense！为了获得最佳体验，需要进行一些快速配置。",
+						"开始设置", "稍后"
+					).then(selection => {
+						if (selection === "开始设置") {
+							vscode.commands.executeCommand('ra2-ini-intellisense.showWelcomePage');
+							context.workspaceState.update('ini.welcome.shown', true);
+						}
+					});
+				} else {
+					context.workspaceState.update('ini.welcome.shown', true);
+				}
+			}
+
 			iniManager.updateFile(document.uri, document.getText()).then(() => {
 				triggerUpdateDiagnostics(document);
 			});
@@ -437,35 +453,28 @@ export async function activate(context: vscode.ExtensionContext) {
 	});
     vscode.workspace.onDidCloseTextDocument(document => {
 		diagnostics.delete(document.uri);
-		// 不需要从索引中移除，因为文件仍然存在于磁盘上
 	});
 
-    // 为所有已打开的文件初始运行一次诊断
     vscode.workspace.textDocuments.forEach(doc => {
 		if (doc.languageId === LANGUAGE_ID) {
 			triggerUpdateDiagnostics(doc);
 		}
 	});
 
-	// 注册所有语言特性提供者
 	context.subscriptions.push(
-		// 跳转到定义
 		vscode.languages.registerDefinitionProvider(selector, {
 			async provideDefinition(document, position, token) {
 				const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
 				if (!wordRange) {
-					// Ctrl+悬停时，返回空数组抑制气泡
 					return [];
 				}
 				const word = document.getText(wordRange);
 
-				// 优先在当前文件中查找
 				const lineInCurrentFile = iniManager.findSectionInContent(document.getText(), word);
 				if (lineInCurrentFile !== null) {
 					return new vscode.Location(document.uri, new vscode.Position(lineInCurrentFile, 0));
 				}
 				
-				// 然后在整个索引中查找
 				const sectionLocations = iniManager.findSectionLocations(word);
 				if (sectionLocations.length > 0) {
 					return sectionLocations;
@@ -474,21 +483,19 @@ export async function activate(context: vscode.ExtensionContext) {
 				return [];
 			}
 		}),
-		// 悬停提示
 		vscode.languages.registerHoverProvider(selector, {
 			provideHover(document, position, token) {
 				const line = document.lineAt(position.line);
 				const lineText = line.text;
 				const equalsIndex = lineText.indexOf('=');
 
-				if (equalsIndex === -1) { // 如果不是键值对行，检查是否悬停在值上
+				if (equalsIndex === -1) { 
 					const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
 					if (!wordRange) {return null;}
 
 					const word = document.getText(wordRange);
 					const sectionInfos = iniManager.findSection(word);
 					if (sectionInfos.length > 0) {
-						// 默认从第一个找到的定义片段中获取注释
 						const commentText = iniManager.getSectionComment(sectionInfos[0].content, word);
 						if (commentText) {
 							return new vscode.Hover(new vscode.MarkdownString(commentText), wordRange);
@@ -497,7 +504,6 @@ export async function activate(context: vscode.ExtensionContext) {
 					return null;
 				}
 
-				// --- 以下是处理键的悬停逻辑 ---
 				const keyPart = lineText.substring(0, equalsIndex).trim();
 				const keyRange = new vscode.Range(position.line, line.firstNonWhitespaceCharacterIndex, position.line, equalsIndex);
 
@@ -519,7 +525,6 @@ export async function activate(context: vscode.ExtensionContext) {
 				markdown.supportThemeIcons = true;
 				let hasContent = false;
 
-				// --- 模块1: 查找并附加类型信息 ---
 				const typeName = iniManager.getTypeForSection(currentSectionName);
 				if (typeName) {
 					const allKeys = schemaManager.getAllKeysForType(typeName);
@@ -538,10 +543,8 @@ export async function activate(context: vscode.ExtensionContext) {
 					}
 				}
 
-				// --- 模块2: 查找并附加覆盖信息 ---
 				const parentName = iniManager.getInheritance(currentSectionName);
 				if (parentName) {
-					// 仅当类型系统认为这是一个可覆盖的键时，才去实例中查找
 					const parentTypeName = iniManager.getTypeForSection(parentName);
 					const parentKeys = schemaManager.getAllKeysForType(parentTypeName);
 
@@ -576,7 +579,6 @@ export async function activate(context: vscode.ExtensionContext) {
 				return hasContent ? new vscode.Hover(markdown, keyRange) : null;
 			}
 		}),
-		// 自动补全
 		vscode.languages.registerCompletionItemProvider(selector, {
 			async provideCompletionItems(document, position, token, context) {
 				const line = document.lineAt(position.line);
@@ -665,7 +667,6 @@ export async function activate(context: vscode.ExtensionContext) {
 				}
 			}
 		}),
-		// 颜色拾取器
 		vscode.languages.registerColorProvider(selector, {
 			provideDocumentColors(document, token) {
 				const colors: vscode.ColorInformation[] = [];
@@ -722,7 +723,6 @@ export async function activate(context: vscode.ExtensionContext) {
 				return [new vscode.ColorPresentation(`${r},${g},${b}`)];
 			}
 		}),
-		// 查找所有引用
 		vscode.languages.registerReferenceProvider(selector, {
 			provideReferences(document, position, context, token) {
 				const line = document.lineAt(position.line);
@@ -736,7 +736,6 @@ export async function activate(context: vscode.ExtensionContext) {
 				return [];
 			}
 		}),
-		// 代码折叠
 		vscode.languages.registerFoldingRangeProvider(selector, {
 			provideFoldingRanges(document, context, token) {
 				const result = [];

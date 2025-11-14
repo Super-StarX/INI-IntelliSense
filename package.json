@@ -11,7 +11,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:ra2-ini"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [
@@ -97,6 +99,11 @@
     },
     "commands": [
       {
+        "command": "ra2-ini-intellisense.showWelcomePage",
+        "title": "%command.showWelcomePage.title%",
+        "category": "%command.category%"
+      },
+      {
         "command": "ra2-ini-intellisense.manageValidator",
         "title": "%command.manageValidator.title%",
         "category": "%command.category%"
@@ -119,6 +126,11 @@
       {
         "command": "ra2-ini-intellisense.jumpToOverride",
         "title": "%command.jumpToOverride.title%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "ra2-ini-intellisense.showMainQuickPick",
+        "title": "%command.showMainQuickPick.title%",
         "category": "%command.category%"
       }
     ],
