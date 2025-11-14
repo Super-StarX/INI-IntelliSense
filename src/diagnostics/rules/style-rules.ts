@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { IniDiagnostic } from '../diagnostic';
 import { ErrorCode } from '../error-codes';
 import { RuleContext, ValidationRule } from '../rules';
+import { localize } from '../../i18n';
 
 const checkLeadingWhitespace: ValidationRule = (context: RuleContext): IniDiagnostic[] => {
     const { line, lineNumber, config } = context;
@@ -13,7 +14,7 @@ const checkLeadingWhitespace: ValidationRule = (context: RuleContext): IniDiagno
     if (leadingSpaceMatch) {
         return [new IniDiagnostic(
             new vscode.Range(lineNumber, 0, lineNumber, leadingSpaceMatch[0].length),
-            '行首存在不必要的空格。',
+            localize('diag.style.leadingWhitespace', 'Unnecessary leading whitespace at the beginning of the line.'),
             vscode.DiagnosticSeverity.Warning,
             ErrorCode.STYLE_LEADING_WHITESPACE
         )];
@@ -31,7 +32,7 @@ const checkSpaceAroundEquals: ValidationRule = (context: RuleContext): IniDiagno
             const start = line.text.indexOf(equalsLeft[0]);
             diagnostics.push(new IniDiagnostic(
                 new vscode.Range(lineNumber, start, lineNumber, start + equalsLeft[1].length),
-                '请避免在 "=" 左侧使用空格。',
+                localize('diag.style.spaceBeforeEquals', 'Avoid spaces before the "=" sign.'),
                 vscode.DiagnosticSeverity.Warning,
                 ErrorCode.STYLE_SPACE_BEFORE_EQUALS
             ));
@@ -44,7 +45,7 @@ const checkSpaceAroundEquals: ValidationRule = (context: RuleContext): IniDiagno
             const start = line.text.indexOf(equalsRight[0]) + 1;
             diagnostics.push(new IniDiagnostic(
                 new vscode.Range(lineNumber, start, lineNumber, start + equalsRight[1].length),
-                '请避免在 "=" 右侧使用空格。',
+                localize('diag.style.spaceAfterEquals', 'Avoid spaces after the "=" sign.'),
                 vscode.DiagnosticSeverity.Warning,
                 ErrorCode.STYLE_SPACE_AFTER_EQUALS
             ));
@@ -72,7 +73,7 @@ const checkCommentSpacing: ValidationRule = (context: RuleContext): IniDiagnosti
             if (numSpaces !== spacesBeforeComment) {
                 diagnostics.push(new IniDiagnostic(
                     new vscode.Range(lineNumber, commentIndex - numSpaces, lineNumber, commentIndex),
-                    `注释符号 ";" 前应有 ${spacesBeforeComment} 个空格。`,
+                    localize('diag.style.incorrectSpacesBeforeComment', 'There should be {0} space(s) before the comment character ";".', spacesBeforeComment),
                     vscode.DiagnosticSeverity.Warning,
                     ErrorCode.STYLE_INCORRECT_SPACES_BEFORE_COMMENT
                 ));
@@ -86,7 +87,7 @@ const checkCommentSpacing: ValidationRule = (context: RuleContext): IniDiagnosti
             const start = lineText.indexOf(commentRightMatch[0]);
             diagnostics.push(new IniDiagnostic(
                 new vscode.Range(lineNumber, start, lineNumber, start + 2),
-                '注释符号 ";" 后应有一个空格。',
+                localize('diag.style.missingSpaceAfterComment', 'There should be a space after the comment character ";".'),
                 vscode.DiagnosticSeverity.Warning,
                 ErrorCode.STYLE_MISSING_SPACE_AFTER_COMMENT
             ));

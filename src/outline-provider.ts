@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { INIManager } from './parser';
+import { localize } from './i18n';
 
 // 定义树视图中条目的类型
 enum OutlineItemType {
@@ -51,7 +52,7 @@ class OutlineItem extends vscode.TreeItem {
             const position = new vscode.Position(options.lineNumber, 0);
             this.command = {
                 command: 'vscode.open',
-                title: 'Go to Definition',
+                title: localize('outline.goToDefinition', 'Go to Definition'),
                 arguments: [uri, { selection: new vscode.Range(position, position) }]
             };
         }
@@ -102,7 +103,7 @@ export class INIOutlineProvider implements vscode.TreeDataProvider<OutlineItem> 
      */
     async getChildren(element?: OutlineItem): Promise<OutlineItem[]> {
         if (!vscode.workspace.workspaceFolders) {
-            vscode.window.showInformationMessage('No INI files in empty workspace');
+            vscode.window.showInformationMessage(localize('outline.noFiles', 'No INI files in empty workspace'));
             return [];
         }
 

@@ -1,8 +1,8 @@
 {
   "name": "ra2-ini-intellisense",
-  "displayName": "INI IntelliSense",
+  "displayName": "%extension.displayName%",
   "publisher": "Astralette",
-  "description": "为红色警戒2 Mod开发提供强大的INI智能提示",
+  "description": "%extension.description%",
   "private": true,
   "version": "0.0.2",
   "engines": {
@@ -41,7 +41,7 @@
       "activitybar": [
         {
           "id": "ini-intellisense-explorer",
-          "title": "INI Project",
+          "title": "%view.container.title%",
           "icon": "assets/icon.svg"
         }
       ]
@@ -50,7 +50,7 @@
       "ini-intellisense-explorer": [
         {
           "id": "ini-outline",
-          "name": "INI Project Outline",
+          "name": "%view.outline.name%",
           "icon": "$(list-tree)"
         }
       ]
@@ -67,32 +67,32 @@
     "commands": [
       {
         "command": "ra2-ini-intellisense.manageValidator",
-        "title": "管理 INI Validator",
-        "category": "INI IntelliSense"
+        "title": "%command.manageValidator.title%",
+        "category": "%command.category%"
       },
       {
         "command": "ra2-ini-intellisense.refreshOutline",
-        "title": "刷新 INI 大纲",
+        "title": "%command.refreshOutline.title%",
         "icon": "$(refresh)"
       },
       {
         "command": "ra2-ini-intellisense.showDebugInfo",
-        "title": "INI: 显示当前上下文调试信息",
-        "category": "INI IntelliSense"
+        "title": "%command.showDebugInfo.title%",
+        "category": "%command.category%"
       },
       {
         "command": "ra2-ini-intellisense.configureSchemaPath",
-        "title": "INI: 设置 Schema 文件路径",
-        "category": "INI IntelliSense"
+        "title": "%command.configureSchemaPath.title%",
+        "category": "%command.category%"
       },
       {
         "command": "ra2-ini-intellisense.jumpToOverride",
-        "title": "INI: 跳转到覆盖的定义",
-        "category": "INI IntelliSense"
+        "title": "%command.jumpToOverride.title%",
+        "category": "%command.category%"
       }
     ],
     "configuration": {
-      "title": "INI IntelliSense",
+      "title": "%configuration.title%",
       "properties": {
         "ra2-ini-intellisense.exePath": {
           "type": [
@@ -100,7 +100,7 @@
             "null"
           ],
           "default": null,
-          "description": "INIValidator.exe 的绝对路径。推荐通过点击状态栏图标或使用 '管理 INI Validator' 命令进行设置。"
+          "description": "%configuration.properties.exePath.description%"
         },
         "ra2-ini-intellisense.validationFolderPath": {
           "type": [
@@ -108,7 +108,7 @@
             "null"
           ],
           "default": null,
-          "description": "要校验的Mod根目录的绝对路径。推荐通过点击状态栏图标或使用 '管理 INI Validator' 命令进行设置。"
+          "description": "%configuration.properties.validationFolderPath.description%"
         },
         "ra2-ini-intellisense.validationFiles": {
           "type": "object",
@@ -118,7 +118,7 @@
             "sound": "sound.ini",
             "eva": "eva.ini"
           },
-          "description": "要校验的文件列表。推荐通过点击状态栏图标或使用 '管理 INI Validator' 命令进行交互式编辑。"
+          "description": "%configuration.properties.validationFiles.description%"
         },
         "ra2-ini-intellisense.indexing.includePatterns": {
           "type": "array",
@@ -131,7 +131,7 @@
             "theme*.ini",
             "ui*.ini"
           ],
-          "description": "一个Glob模式数组，用于指定哪些INI文件应该被插件索引。只有匹配此列表中至少一个模式的文件才会被处理。示例: ['maps/**/*.ini'] 用于索引所有maps子目录下的ini文件。",
+          "description": "%configuration.properties.indexing.includePatterns.description%",
           "items": {
             "type": "string"
           }
@@ -139,7 +139,7 @@
         "ra2-ini-intellisense.indexing.excludePatterns": {
           "type": "array",
           "default": [],
-          "description": "一个Glob模式数组，用于从已包含的文件中排除特定的文件或目录。例如: ['**/*_backup.ini']。",
+          "description": "%configuration.properties.indexing.excludePatterns.description%",
           "items": {
             "type": "string"
           }
@@ -147,7 +147,7 @@
         "ra2-ini-intellisense.dontAskToConfigureValidator": {
           "type": "boolean",
           "default": false,
-          "description": "如果为 true, 插件将不会在启动时询问您配置 INI Validator。"
+          "description": "%configuration.properties.dontAskToConfigureValidator.description%"
         },
         "ra2-ini-intellisense.schemaFilePath": {
           "type": [
@@ -155,27 +155,27 @@
             "null"
           ],
           "default": null,
-          "description": "INI 规则定义文件 (INICodingCheck.ini) 的绝对路径。如果未设置，将禁用基于规则的智能提示和诊断功能。"
+          "description": "%configuration.properties.schemaFilePath.description%"
         },
         "ra2-ini-intellisense.codeLens.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "是否在节 (Section) 上方显示代码透镜 (CodeLens), 以展示其被引用的次数。"
+          "description": "%configuration.properties.codeLens.enabled.description%"
         },
         "ra2-ini-intellisense.decorations.overrideIndicator.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "启用或禁用继承覆盖指示器 (在行号旁边的图标和斜体键名)。"
+          "description": "%configuration.properties.decorations.overrideIndicator.enabled.description%"
         },
         "ra2-ini-intellisense.diagnostics.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "启用或禁用所有内置的诊断检查。"
+          "description": "%configuration.properties.diagnostics.enabled.description%"
         },
         "ra2-ini-intellisense.diagnostics.disable": {
           "type": "array",
           "default": [],
-          "description": "一个包含要禁用的特定错误码的列表 (例如, [\"STYLE-101\", \"TYPE-201\"])。",
+          "description": "%configuration.properties.diagnostics.disable.description%",
           "items": {
             "type": "string"
           }
@@ -183,17 +183,17 @@
         "ra2-ini-intellisense.diagnostics.spaceBeforeEquals": {
           "type": "boolean",
           "default": true,
-          "description": "是否检查并警告等号 (=) 左侧的多余空格。"
+          "description": "%configuration.properties.diagnostics.spaceBeforeEquals.description%"
         },
         "ra2-ini-intellisense.diagnostics.spaceAfterEquals": {
           "type": "boolean",
           "default": true,
-          "description": "是否检查并警告等号 (=) 右侧的多余空格。"
+          "description": "%configuration.properties.diagnostics.spaceAfterEquals.description%"
         },
         "ra2-ini-intellisense.diagnostics.leadingWhitespace": {
           "type": "boolean",
           "default": true,
-          "description": "是否检查并警告行首的多余空格。"
+          "description": "%configuration.properties.diagnostics.leadingWhitespace.description%"
         },
         "ra2-ini-intellisense.diagnostics.spacesBeforeComment": {
           "type": [
@@ -201,67 +201,67 @@
             "null"
           ],
           "default": 1,
-          "description": "注释符号 (;) 前应有的确切空格数。设为 null 或留空可禁用此项检查。"
+          "description": "%configuration.properties.diagnostics.spacesBeforeComment.description%"
         },
         "ra2-ini-intellisense.diagnostics.spaceAfterComment": {
           "type": "boolean",
           "default": true,
-          "description": "是否检查并警告注释符号 (;) 后缺少空格的情况 (例如 ';comment' 而非 '; comment')。"
+          "description": "%configuration.properties.diagnostics.spaceAfterComment.description%"
         },
         "ra2-ini-intellisense.colors.sectionBracket": {
           "type": "string",
           "default": "#FFD700",
-          "description": "节的方括号 `[]` 的颜色。"
+          "description": "%configuration.properties.colors.sectionBracket.description%"
         },
         "ra2-ini-intellisense.colors.sectionContent": {
           "type": "string",
           "default": "#fffab2",
-          "description": "节的内容 (如 `[Globals]`) 的颜色。"
+          "description": "%configuration.properties.colors.sectionContent.description%"
         },
         "ra2-ini-intellisense.colors.sectionInherit": {
           "type": "string",
           "default": "#fffab29a",
-          "description": "节的继承部分 (如 `:[AbstractType]`) 的颜色。"
+          "description": "%configuration.properties.colors.sectionInherit.description%"
         },
         "ra2-ini-intellisense.colors.keyPart1": {
           "type": "string",
           "default": "#50b0ff",
-          "description": "键的第一部分 (如 `Key.sub.sub`) 的颜色。"
+          "description": "%configuration.properties.colors.keyPart1.description%"
         },
         "ra2-ini-intellisense.colors.keyPart2": {
           "type": "string",
           "default": "#509cff",
-          "description": "键的第二部分 (如 `key.Sub.sub`) 的颜色。"
+          "description": "%configuration.properties.colors.keyPart2.description%"
         },
         "ra2-ini-intellisense.colors.keyPart3": {
           "type": "string",
           "default": "#5079ff",
-          "description": "键的第三部分及之后 (如 `key.sub.Sub`) 的颜色。"
+          "description": "%configuration.properties.colors.keyPart3.description%"
         },
         "ra2-ini-intellisense.colors.operator": {
           "type": "string",
           "default": "#ffffff",
-          "description": "等号 `=` 的颜色。"
+          "description": "%configuration.properties.colors.operator.description%"
         },
         "ra2-ini-intellisense.colors.value": {
           "type": "string",
           "default": "#82c7ff",
-          "description": "值的默认颜色。"
+          "description": "%configuration.properties.colors.value.description%"
         },
         "ra2-ini-intellisense.colors.valueComma": {
           "type": "string",
           "default": "#ffd000",
-          "description": "值之间的逗号 `,` 的颜色。"
+          "description": "%configuration.properties.colors.valueComma.description%"
         },
         "ra2-ini-intellisense.colors.valueString": {
           "type": "string",
           "default": "#a76c00",
-          "description": "被引号包裹的字符串 `\"...\"` 的颜色。"
+          "description": "%configuration.properties.colors.valueString.description%"
         },
         "ra2-ini-intellisense.colors.comment": {
           "type": "string",
           "default": "#808080",
-          "description": "注释 `;...` 的颜色。"
+          "description": "%configuration.properties.colors.comment.description%"
         }
       }
     },
@@ -283,7 +283,8 @@
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "i18n:extract": "vscode-nls-dev extract --outDir i18n"
   },
   "devDependencies": {
     "@types/ini": "^4.1.1",
@@ -297,7 +298,9 @@
     "esbuild": "^0.24.0",
     "eslint": "^9.16.0",
     "npm-run-all": "^4.1.5",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vscode-nls": "^5.1.2",
+    "vscode-nls-dev": "^9.0.4"
   },
   "dependencies": {
     "ini": "^5.0.0"

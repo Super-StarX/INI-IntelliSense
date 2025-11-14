@@ -85,7 +85,7 @@ export class INIManager {
                 if (error instanceof Error && 'content' in error) {
                     this.files.set(fileUri.fsPath, { content: (error as any).content, parsed: {} });
                 }
-                console.error(`解析INI文件失败 ${fileUri.fsPath}:`, error);
+                console.error(`Failed to parse INI file ${fileUri.fsPath}:`, error);
             }
         }
 

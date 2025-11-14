@@ -4,6 +4,7 @@ import { DiagnosticSeverity } from 'vscode';
 import * as cp from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs/promises';
+import { localize } from './i18n';
 
 type ValidatorStatus = 'ready' | 'invalid' | 'unconfigured';
 const DOWNLOAD_URL = 'https://www.bilibili.com/opus/1022686010171981842';
@@ -63,13 +64,13 @@ export class INIValidatorExt {
     private async promptToSelectExePath() {
         const options: vscode.OpenDialogOptions = {
             canSelectMany: false,
-            openLabel: '选择 INIValidator.exe',
-            filters: process.platform === 'win32' ? { '可执行文件': ['exe'], '所有文件': ['*'] } : undefined
+            openLabel: localize('validator.selectExe.label', 'Select INIValidator.exe'),
+            filters: process.platform === 'win32' ? { [localize('validator.selectExe.filter.executable', 'Executable Files')]: ['exe'], [localize('validator.selectExe.filter.all', 'All Files')]: ['*'] } : undefined
         };
         const fileUri = await vscode.window.showOpenDialog(options);
         if (fileUri && fileUri[0]) {
             await vscode.workspace.getConfiguration().update(CONFIG_KEY_EXE_PATH, fileUri[0].fsPath, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage(`INI Validator 路径已设置为: ${fileUri[0].fsPath}`);
+            vscode.window.showInformationMessage(localize('validator.pathSet.success', 'INI Validator path has been set to: {0}', fileUri[0].fsPath));
         }
     }
 
@@ -81,12 +82,12 @@ export class INIValidatorExt {
             canSelectFiles: false,
             canSelectFolders: true,
             canSelectMany: false,
-            openLabel: '选择 Mod 根目录'
+            openLabel: localize('validator.selectFolder.label', 'Select Mod Root Folder')
         };
         const folderUri = await vscode.window.showOpenDialog(options);
         if (folderUri && folderUri[0]) {
             await vscode.workspace.getConfiguration().update(CONFIG_KEY_FOLDER_PATH, folderUri[0].fsPath, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage(`Mod 校验根目录已设置为: ${folderUri[0].fsPath}`);
+            vscode.window.showInformationMessage(localize('validator.folderSet.success', 'Mod validation root folder has been set to: {0}', folderUri[0].fsPath));
         }
     }
     
@@ -99,27 +100,27 @@ export class INIValidatorExt {
 
         const toQuickPickItem = (key: string, value: string): vscode.QuickPickItem => ({
             label: `[${key}] = ${value}`,
-            description: '点击以编辑或删除此条目'
+            description: localize('validator.manageFiles.item.description', 'Click to edit or delete this entry')
         });
 
         // 构造菜单项, 包括 "添加" 和所有现有条目
         const items: vscode.QuickPickItem[] = [
-            { label: '$(add) 添加新文件条目...', description: '为 [Files] 节添加一个新的键值对' },
+            { label: localize('validator.manageFiles.add.label', '$(add) Add New File Entry...'), description: localize('validator.manageFiles.add.description', 'Add a new key-value pair to the [Files] section') },
             ...Object.entries(files).map(([key, value]) => toQuickPickItem(key, value))
         ];
 
-        const selection = await vscode.window.showQuickPick(items, { placeHolder: '管理要校验的文件列表' });
+        const selection = await vscode.window.showQuickPick(items, { placeHolder: localize('validator.manageFiles.placeholder', 'Manage File List for Validation') });
         if (!selection) {
             return;
         }
 
         if (selection.label.startsWith('$(add)')) {
             // 添加新条目
-            const key = await vscode.window.showInputBox({ prompt: '输入键名 (例如: rulesext)' });
+            const key = await vscode.window.showInputBox({ prompt: localize('validator.manageFiles.inputKey.prompt', 'Enter the key name (e.g., rulesext)') });
             if (!key) {
                 return;
             }
-            const value = await vscode.window.showInputBox({ prompt: `输入 '${key}' 对应的文件名 (例如: rulesext.ini)` });
+            const value = await vscode.window.showInputBox({ prompt: localize('validator.manageFiles.inputValue.prompt', 'Enter the filename for key "{0}" (e.g., rulesext.ini)', key) });
             if (value === undefined) {
                 return;
             }
@@ -127,22 +128,22 @@ export class INIValidatorExt {
         } else {
             // 编辑或删除现有条目
             const [key] = selection.label.substring(1).split(']')[0];
-            const action = await vscode.window.showQuickPick(['编辑值', '删除条目'], { placeHolder: `操作 "${selection.label}"` });
+            const action = await vscode.window.showQuickPick([localize('validator.manageFiles.action.edit', 'Edit Value'), localize('validator.manageFiles.action.delete', 'Delete Entry')], { placeHolder: localize('validator.manageFiles.action.placeholder', 'Action for "{0}"', selection.label) });
             if (!action) {
                 return;
             }
 
-            if (action === '编辑值') {
-                const newValue = await vscode.window.showInputBox({ prompt: `为键 '${key}' 输入新的文件名`, value: files[key] });
+            if (action === localize('validator.manageFiles.action.edit', 'Edit Value')) {
+                const newValue = await vscode.window.showInputBox({ prompt: localize('validator.manageFiles.editValue.prompt', 'Enter the new filename for key "{0}"', key), value: files[key] });
                 if (newValue !== undefined) {
                     files[key] = newValue;
                 }
-            } else if (action === '删除条目') {
+            } else if (action === localize('validator.manageFiles.action.delete', 'Delete Entry')) {
                 delete files[key];
             }
         }
         await config.update('validationFiles', files, vscode.ConfigurationTarget.Global);
-        vscode.window.showInformationMessage('校验文件列表已更新。');
+        vscode.window.showInformationMessage(localize('validator.fileListUpdated', 'Validation file list has been updated.'));
     }
 
     /**
@@ -150,16 +151,17 @@ export class INIValidatorExt {
      */
     private async showManagementQuickPick() {
         const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+        const notSetDescription = localize('validator.quickPick.notSet', 'Not currently set');
         const items: vscode.QuickPickItem[] = [];
         
-        items.push({ label: "$(file-code) 设置 INI Validator 路径...", description: this.exePath || "当前未设置" });
-        items.push({ label: "$(folder) 设置 Mod 根目录...", description: config.get('validationFolderPath') || "当前未设置" });
-        items.push({ label: "$(list-selection) 编辑校验文件列表...", description: "交互式管理要校验的文件" });
-        items.push({ label: "$(play) 手动执行一次校验", description: "立即生成Settings.ini并运行校验" });
-        items.push({ label: "$(cloud-download) 前往下载 INI Validator", description: "在浏览器中打开下载页面" });
-        items.push({ label: "$(settings) 打开插件设置 (JSON)", description: "用于高级配置" });
+        items.push({ label: localize('validator.quickPick.setPath.label', '$(file-code) Set INI Validator Path...'), description: this.exePath || notSetDescription });
+        items.push({ label: localize('validator.quickPick.setFolder.label', '$(folder) Set Mod Root Folder...'), description: config.get('validationFolderPath') || notSetDescription });
+        items.push({ label: localize('validator.quickPick.editList.label', '$(list-selection) Edit Validation File List...'), description: localize('validator.quickPick.editList.description', 'Interactively manage the files to be validated') });
+        items.push({ label: localize('validator.quickPick.run.label', '$(play) Run Validation Manually'), description: localize('validator.quickPick.run.description', 'Generate Settings.ini and run validation immediately') });
+        items.push({ label: localize('validator.quickPick.download.label', '$(cloud-download) Go to Download INI Validator'), description: localize('validator.quickPick.download.description', 'Open the download page in your browser') });
+        items.push({ label: localize('validator.quickPick.openSettings.label', '$(settings) Open Extension Settings (JSON)'), description: localize('validator.quickPick.openSettings.description', 'For advanced configuration') });
 
-        const selection = await vscode.window.showQuickPick(items, { placeHolder: '管理 INI Validator 集成' });
+        const selection = await vscode.window.showQuickPick(items, { placeHolder: localize('validator.quickPick.placeholder', 'Manage INI Validator Integration') });
         if (!selection) {
             return;
         }
@@ -191,9 +193,9 @@ export class INIValidatorExt {
         this.exePath = path.resolve(configuredPath.startsWith('~/') ? path.join(os.homedir(), configuredPath.slice(2)) : configuredPath);
         try {
             const stats = await fs.stat(this.exePath);
-            this.updateStatus(stats.isFile() ? 'ready' : 'invalid', stats.isFile() ? '' : '路径指向的是一个目录, 而非文件。');
+            this.updateStatus(stats.isFile() ? 'ready' : 'invalid', stats.isFile() ? '' : localize('validator.status.pathIsDirectory', 'The path points to a directory, not a file.'));
         } catch (error) {
-            this.updateStatus('invalid', '路径不存在或无法访问。');
+            this.updateStatus('invalid', localize('validator.status.pathNotFound', 'The path does not exist or is not accessible.'));
         }
     }
 
@@ -207,17 +209,17 @@ export class INIValidatorExt {
         switch (status) {
             case 'ready':
                 this.statusBarItem.text = `$(check) INI Validator`;
-                this.statusBarItem.tooltip = `准备就绪: ${this.exePath}\n点击进行管理。`;
+                this.statusBarItem.tooltip = localize('validator.status.ready', 'Ready: {0}\nClick to manage.', this.exePath);
                 this.statusBarItem.backgroundColor = undefined;
                 break;
             case 'invalid':
                 this.statusBarItem.text = `$(error) INI Validator`;
-                this.statusBarItem.tooltip = `错误: 配置的路径无效, 点击修复。\n详情: ${details}`;
+                this.statusBarItem.tooltip = localize('validator.status.invalid', 'Error: The configured path is invalid. Click to fix.\nDetails: {0}', details);
                 this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
                 break;
             case 'unconfigured':
                 this.statusBarItem.text = `$(warning) INI Validator`;
-                this.statusBarItem.tooltip = '未配置, 点击进行设置。';
+                this.statusBarItem.tooltip = localize('validator.status.unconfigured', 'Not configured. Click to set up.');
                 this.statusBarItem.backgroundColor = undefined;
                 break;
         }
@@ -232,12 +234,20 @@ export class INIValidatorExt {
         const dontAsk = config.get<boolean>('dontAskToConfigureValidator'); // 修复: 使用相对键
 
         if (this.status === 'unconfigured' && !dontAsk) {
-            const selection = await vscode.window.showInformationMessage('未配置 INI Validator, 是否设置以启用高级诊断功能?', '配置路径', '前往下载', "不再询问");
-            if (selection === '配置路径') {
+            const configureAction = localize('validator.prompt.configure.action.configure', 'Configure Path');
+            const downloadAction = localize('validator.prompt.configure.action.download', 'Go to Download');
+            const dontAskAction = localize('validator.prompt.configure.action.dontAsk', "Don't Ask Again");
+
+            const selection = await vscode.window.showInformationMessage(
+                localize('validator.prompt.configure.message', 'INI Validator is not configured. Would you like to set it up to enable advanced diagnostics?'),
+                configureAction, downloadAction, dontAskAction
+            );
+
+            if (selection === configureAction) {
                 this.promptToSelectExePath();
-            } else if (selection === '前往下载') {
+            } else if (selection === downloadAction) {
                 vscode.env.openExternal(vscode.Uri.parse(DOWNLOAD_URL));
-            } else if (selection === "不再询问") {
+            } else if (selection === dontAskAction) {
                 await config.update('dontAskToConfigureValidator', true, vscode.ConfigurationTarget.Global); // 修复: 使用相对键
             }
         }
@@ -252,19 +262,19 @@ export class INIValidatorExt {
      */
     public async runValidatorCommand() {
         if (!this.isReady()) {
-            vscode.window.showWarningMessage('INI Validator 尚未配置, 无法执行校验。');
+            vscode.window.showWarningMessage(localize('validator.run.notReady', 'INI Validator is not configured, cannot run validation.'));
             return;
         }
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "正在运行 INI Validator...",
+            title: localize('validator.run.progress.title', 'Running INI Validator...'),
             cancellable: false
         }, async (progress) => {
             const success = await this.runValidation();
             if (success) {
-                progress.report({ message: '校验完成!' });
+                progress.report({ message: localize('validator.run.progress.success', 'Validation complete!') });
             } else {
-                progress.report({ message: '校验失败。' });
+                progress.report({ message: localize('validator.run.progress.failure', 'Validation failed.') });
             }
             await new Promise(resolve => setTimeout(resolve, 2000));
         });
@@ -282,7 +292,7 @@ export class INIValidatorExt {
         const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
         const folderPath = config.get<string>('validationFolderPath'); // 修复: 使用相对键
         if (!folderPath) {
-            vscode.window.showWarningMessage('未配置Mod校验根目录, 已跳过 INI Validator 校验。');
+            vscode.window.showWarningMessage(localize('validator.run.folderNotSet', 'Mod validation root folder is not configured. Skipped INI Validator check.'));
             return false;
         }
 
@@ -307,7 +317,7 @@ export class INIValidatorExt {
             return true;
 
         } catch (error: any) {
-            const errorMessage = `运行 INI Validator 失败: ${error.message}。请检查路径、文件权限以及 '${path.basename(exeDir)}' 目录的写入权限。`;
+            const errorMessage = localize('validator.run.executionError', 'Failed to run INI Validator: {0}. Please check the path, file permissions, and write access to the "{1}" directory.', error.message, path.basename(exeDir));
             vscode.window.showErrorMessage(errorMessage);
             console.error('INI Validator 执行错误:', error);
             return false;
@@ -367,7 +377,7 @@ export class INIValidatorExt {
                     reject(error); return;
                 }
                 if (stderr) {
-                    console.warn('INI Validator 在 stderr 产生了输出:', stderr);
+                    console.warn(localize('validator.exec.stderr', 'INI Validator produced output on stderr:'), stderr);
                 }
                 resolve(stdout);
             });

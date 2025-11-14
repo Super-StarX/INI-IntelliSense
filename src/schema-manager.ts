@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as ini from 'ini';
+import { localize } from './i18n';
 
 /**
  * 存储一个Schema类型的定义。
@@ -438,25 +439,25 @@ export class SchemaManager {
 
         const analyze = (name: string, indent: string) => {
             if (analyzed.has(name)) {
-                lines.push(`${indent}- (错误: 在 '${name}' 处检测到循环继承)`);
+                lines.push(`${indent}- ${localize('debug.analysis.circularRef', "(Error: Circular inheritance detected at '{0}')", name)}`);
                 return;
             }
             analyzed.add(name);
 
             const definition = this.schemas.get(name);
-            lines.push(`${indent}- 正在分析类型 '${name}'...`);
+            lines.push(`${indent}- ${localize('debug.analysis.analyzingType', "Analyzing type '{0}'...", name)}`);
 
             if (!definition) {
-                lines.push(`${indent}  - ❌ 错误: 在Schema中未找到此类型的定义。`);
+                lines.push(`${indent}  - ${localize('debug.analysis.typeNotFound', "❌ Error: Definition for this type not found in the schema.")}`);
                 return;
             }
 
-            lines.push(`${indent}  - 原生键数量: ${definition.keys.size}`);
+            lines.push(`${indent}  - ${localize('debug.analysis.nativeKeys', "Native keys: {0}", definition.keys.size)}`);
             if (definition.base) {
-                lines.push(`${indent}  - 继承自: '${definition.base}'`);
+                lines.push(`${indent}  - ${localize('debug.analysis.inheritsFrom', "Inherits from: '{0}'", definition.base)}`);
                 analyze(definition.base, indent + "  ");
             } else {
-                lines.push(`${indent}  - 已到达继承链顶端。`);
+                lines.push(`${indent}  - ${localize('debug.analysis.inheritanceTop', "Reached the top of the inheritance chain.")}`);
             }
         };
 

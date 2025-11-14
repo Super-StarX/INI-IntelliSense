@@ -9,6 +9,7 @@ import { DiagnosticEngine } from './diagnostics/engine';
 import { ErrorCode } from './diagnostics/error-codes';
 import { IniDiagnostic } from './diagnostics/diagnostic';
 import { OverrideDecorator } from './override-decorator';
+import { localize } from './i18n';
 
 let diagnostics: vscode.DiagnosticCollection;
 const LANGUAGE_ID = 'ra2-ini';
@@ -21,7 +22,7 @@ const LANGUAGE_ID = 'ra2-ini';
  */
 export async function activate(context: vscode.ExtensionContext) {
 	// 创建一个用于输出调试信息的专用输出频道
-	const outputChannel = vscode.window.createOutputChannel("INI IntelliSense");
+	const outputChannel = vscode.window.createOutputChannel(localize('output.channel.name', 'INI IntelliSense'));
 	
 	// 初始化核心管理器
 	const iniManager = new INIManager();
@@ -97,11 +98,11 @@ export async function activate(context: vscode.ExtensionContext) {
 	function updateSchemaStatus(loadedPath: string | null) {
 		if (loadedPath) {
 			schemaStatusbar.text = `$(check) INI Schema`;
-			schemaStatusbar.tooltip = `INI Schema Loaded: ${loadedPath}\nClick to change the schema file.`;
+			schemaStatusbar.tooltip = localize('statusbar.schema.loaded.tooltip', 'INI Schema Loaded: {0}\nClick to change the schema file.', loadedPath);
 			schemaStatusbar.backgroundColor = undefined;
 		} else {
 			schemaStatusbar.text = `$(warning) INI Schema`;
-			schemaStatusbar.tooltip = `INI Schema not loaded. Click to select your INICodingCheck.ini file.`;
+			schemaStatusbar.tooltip = localize('statusbar.schema.notLoaded.tooltip', 'INI Schema not loaded. Click to select your INICodingCheck.ini file.');
 			schemaStatusbar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 		}
 		schemaStatusbar.show();
@@ -133,12 +134,12 @@ export async function activate(context: vscode.ExtensionContext) {
 				schemaManager.loadSchema(schemaContent, schemaPath);
 				loadedPath = schemaPath;
 				if (isExplicitPath) {
-					 vscode.window.showInformationMessage(`自定义 INI 规则文件加载成功: ${schemaPath}`);
+					 vscode.window.showInformationMessage(localize('schema.load.success', 'Custom INI schema file loaded successfully: {0}', schemaPath));
 				}
 			} catch (error) {
 				schemaManager.clearSchema();
 				if (isExplicitPath) {
-					vscode.window.showErrorMessage(`加载指定的 INI 规则文件失败: ${schemaPath}。`);
+					vscode.window.showErrorMessage(localize('schema.load.failure', 'Failed to load the specified INI schema file: {0}.', schemaPath));
 				}
 			}
 		} else {
@@ -153,8 +154,8 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.configureSchemaPath', async () => {
 		const options: vscode.OpenDialogOptions = {
 			canSelectMany: false,
-			openLabel: 'Select INICodingCheck.ini',
-			filters: { 'INI Files': ['ini'] }
+			openLabel: localize('command.configureSchema.openLabel', 'Select INICodingCheck.ini'),
+			filters: { [localize('command.configureSchema.filterLabel', 'INI Files')]: ['ini'] }
 		};
 		const fileUri = await vscode.window.showOpenDialog(options);
 		if (fileUri && fileUri[0]) {
@@ -200,17 +201,17 @@ export async function activate(context: vscode.ExtensionContext) {
 								const parts: string[] = [];
 
 								if (valueRefs.length > 0) {
-									parts.push(`${valueRefs.length} 次引用`);
+									parts.push(localize('codelens.references', '{0} references', valueRefs.length));
 								}
 								if (inheritanceRefs.length > 0) {
-									parts.push(`${inheritanceRefs.length} 次被继承`);
+									parts.push(localize('codelens.inheritors', '{0} inheritors', inheritanceRefs.length));
 								}
 		
 								let title: string;
 								if (parts.length > 0) {
 									title = parts.join(', ');
 								} else {
-									title = '0 次引用 (可能未使用)';
+									title = localize('codelens.noReferences', '0 references (potentially unused)');
 								}
 		
 								codeLenses.push(new vscode.CodeLens(range, {
@@ -292,7 +293,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.showDebugInfo', () => {
 		const editor = vscode.window.activeTextEditor;
 		if (!editor) {
-			vscode.window.showWarningMessage('请先打开一个 INI 文件再运行此命令。');
+			vscode.window.showWarningMessage(localize('debug.openFileFirst', 'Please open an INI file before running this command.'));
 			return;
 		}
 
@@ -300,21 +301,21 @@ export async function activate(context: vscode.ExtensionContext) {
 		const document = editor.document;
 		
 		outputChannel.clear();
-		outputChannel.appendLine("--- INI 智能感知调试信息 ---\n");
+		outputChannel.appendLine(localize('debug.title', '--- INI IntelliSense Debug Info ---\n'));
 
 		const idListRegistryNames = schemaManager.getIdListRegistryNames();
 		if (idListRegistryNames.size > 0) {
-			outputChannel.appendLine(`✅ Schema 加载完毕: 共找到 ${schemaManager.getRegistryNames().size} 个注册表。`);
-			outputChannel.appendLine(`✅ 已识别出 ${idListRegistryNames.size} 个用于索引的ID列表注册表:`);
+			outputChannel.appendLine(localize('debug.schema.loaded', '✅ Schema loaded: Found {0} registries in total.', schemaManager.getRegistryNames().size));
+			outputChannel.appendLine(localize('debug.schema.idRegistriesFound', '✅ Identified {0} ID list registries for indexing:', idListRegistryNames.size));
 			outputChannel.appendLine(`   ${Array.from(idListRegistryNames).join(', ')}`);
 		} else {
-			outputChannel.appendLine(`❌ 警告: 未从Schema中识别出任何ID列表注册表，类型推断将失败。`);
+			outputChannel.appendLine(localize('debug.schema.noIdRegistries', '❌ Warning: No ID list registries identified from the schema. Type inference will fail.'));
 		}
-		outputChannel.appendLine(`✅ 索引完毕: 在所有文件中，共找到 ${iniManager.getRegistryMapSize()} 个唯一的已注册节ID。\n`);
+		outputChannel.appendLine(localize('debug.index.summary', '✅ Indexing complete: Found {0} unique registered section IDs across all files.\n', iniManager.getRegistryMapSize()));
 
-		outputChannel.appendLine(`--- 上下文信息 ---`);
-		outputChannel.appendLine(`文件: ${document.uri.fsPath}`);
-		outputChannel.appendLine(`光标位置: 行 ${position.line + 1}, 字符 ${position.character + 1}\n`);
+		outputChannel.appendLine(localize('debug.context.title', '--- Context Info ---'));
+		outputChannel.appendLine(localize('debug.context.file', 'File: {0}', document.uri.fsPath));
+		outputChannel.appendLine(localize('debug.context.position', 'Cursor Position: Line {0}, Character {1}\n', position.line + 1, position.character + 1));
 
 		let currentSectionName: string | null = null;
 		for (let i = position.line; i >= 0; i--) {
@@ -327,29 +328,29 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 
 		if (!currentSectionName) {
-			outputChannel.appendLine("错误: 光标不在一个有效的节内。");
+			outputChannel.appendLine(localize('debug.context.noSection', 'Error: Cursor is not within a valid section.'));
 			outputChannel.show();
 			return;
 		}
 		
-		outputChannel.appendLine(`✅ 当前节: [${currentSectionName}]`);
+		outputChannel.appendLine(localize('debug.context.currentSection', '✅ Current Section: [{0}]', currentSectionName));
 
 		const typeName = iniManager.getTypeForSection(currentSectionName);
 		if (typeName) {
-			outputChannel.appendLine(`✅ 推断类型为: '${typeName}'`);
+			outputChannel.appendLine(localize('debug.inference.success', "✅ Inferred Type: '{0}'", typeName));
 
 			const debugLines = schemaManager.getDebugInfoForType(typeName);
-			outputChannel.appendLine("\n--- 类型继承与键值分析 ---");
+			outputChannel.appendLine(localize('debug.analysis.title', '\n--- Type Inheritance & Key Analysis ---'));
 			debugLines.forEach(line => outputChannel.appendLine(line));
 
 			const allKeys = schemaManager.getAllKeysForType(typeName);
 			if (allKeys.size > 0) {
-				outputChannel.appendLine(`\n✅ 总可用键 (包含继承): ${allKeys.size} 个`);
+				outputChannel.appendLine(localize('debug.analysis.totalKeys', '\n✅ Total available keys (including inherited): {0}', allKeys.size));
 			} else {
-				outputChannel.appendLine(`\n❌ 警告: 在分析继承链后，未找到类型 '${typeName}' 的任何键。`);
+				outputChannel.appendLine(localize('debug.analysis.noKeys', `\n❌ Warning: No keys found for type '{0}' after analyzing inheritance chain.`, typeName));
 			}
 		} else {
-			outputChannel.appendLine(`\n❌ 错误: 无法确定要分析的类型。`);
+			outputChannel.appendLine(localize('debug.inference.failure', '\n❌ Error: Could not determine the type to analyze.'));
 		}
 		
 		outputChannel.show();
@@ -513,7 +514,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			
 					if (valueType) {
 						markdown.appendCodeblock(`${keyPart}: ${valueType}`, 'ini');
-						markdown.appendMarkdown(`属于 **${typeName}** 类型。`);
+						markdown.appendMarkdown(localize('hover.type.belongsTo', `Belongs to type **{0}**.`, typeName));
 						hasContent = true;
 					}
 				}
@@ -534,7 +535,7 @@ export async function activate(context: vscode.ExtensionContext) {
 							const lineNum = parentKeyInfo.location.range.start.line + 1;
 							const fileName = path.basename(parentKeyInfo.location.uri.fsPath);
 
-							markdown.appendMarkdown(`此键覆盖了基类的值 **${fileName}**:L${lineNum}`);
+							markdown.appendMarkdown(localize('hover.override.info', `This key overrides a value from base class in **{0}**:L{1}`, fileName, lineNum));
 							
 							const parentValueMatch = parentKeyInfo.lineText.match(/=\s*(.*)/);
 							const parentValueRaw = parentValueMatch ? parentValueMatch[1].trim() : '';
@@ -547,7 +548,7 @@ export async function activate(context: vscode.ExtensionContext) {
 								position: parentKeyInfo.location.range.start
 							};
 							const commandUri = vscode.Uri.parse(`command:ra2-ini-intellisense.jumpToOverride?${encodeURIComponent(JSON.stringify(args))}`);
-							markdown.appendMarkdown(`[$(go-to-file) 跳转到父类定义](${commandUri})`);
+							markdown.appendMarkdown(localize('hover.override.jumpLink', `[$(go-to-file) Go to Parent Definition]({0})`, commandUri.toString()));
 							hasContent = true;
 						}
 					}
@@ -609,7 +610,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						if (valueType === 'ColorStruct') {
 							const item = new vscode.CompletionItem('R,G,B', vscode.CompletionItemKind.Color);
 							item.insertText = '255,255,255';
-							item.documentation = '输入一个 RGB 颜色值, 例如: 255,0,0';
+							item.documentation = localize('completion.color.documentation', 'Enter an RGB color value, e.g., 255,0,0');
 							suggestions.push(item);
 						}
 						const targetRegistry = schemaManager.getRegistryForType(valueType);

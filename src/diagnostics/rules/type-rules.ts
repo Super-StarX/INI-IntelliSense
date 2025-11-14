@@ -3,6 +3,7 @@ import { IniDiagnostic } from '../diagnostic';
 import { ErrorCode } from '../error-codes';
 import { RuleContext, ValidationRule } from '../rules';
 import { ValueTypeCategory } from '../../schema-manager';
+import { localize } from '../../i18n';
 
 /**
  * 验证一个值是否符合其 Schema 定义的类型规则，并返回带精确范围的错误。
@@ -23,17 +24,17 @@ function validateValue(value: string, valueType: string, context: RuleContext, v
 
     switch (category) {
         case ValueTypeCategory.Primitive:
-            if (valueType === 'int' && !/^-?\d+$/.test(value)) {return createError(`值 "${value}" 不是一个有效的整数。`, ErrorCode.TYPE_INVALID_INTEGER);}
-            if (valueType === 'float' && isNaN(parseFloat(value))) {return createError(`值 "${value}" 不是一个有效的浮点数。`, ErrorCode.TYPE_INVALID_FLOAT);}
+            if (valueType === 'int' && !/^-?\d+$/.test(value)) {return createError(localize('diag.type.invalidInteger', 'Value "{0}" is not a valid integer.', value), ErrorCode.TYPE_INVALID_INTEGER);}
+            if (valueType === 'float' && isNaN(parseFloat(value))) {return createError(localize('diag.type.invalidFloat', 'Value "{0}" is not a valid floating-point number.', value), ErrorCode.TYPE_INVALID_FLOAT);}
             return [];
 
         case ValueTypeCategory.NumberLimit: {
             const limit = schemaManager.getNumberLimit(valueType);
             if (!limit) {return [];}
             const num = parseInt(value, 10);
-            if (isNaN(num)) {return createError(`值 "${value}" 不是一个有效的整数。`, ErrorCode.TYPE_INVALID_INTEGER);}
+            if (isNaN(num)) {return createError(localize('diag.type.invalidInteger', 'Value "{0}" is not a valid integer.', value), ErrorCode.TYPE_INVALID_INTEGER);}
             if (num < limit.min || num > limit.max) {
-                return createError(`值 ${value} 超出类型 '${valueType}' 的范围 [${limit.min}, ${limit.max}]。`, ErrorCode.TYPE_NUMBER_OUT_OF_RANGE);
+                return createError(localize('diag.type.numberOutOfRange', 'Value {0} is outside the allowed range [{1}, {2}] for type "{3}".', value, limit.min, limit.max, valueType), ErrorCode.TYPE_NUMBER_OUT_OF_RANGE);
             }
             return [];
         }
@@ -45,15 +46,15 @@ function validateValue(value: string, valueType: string, context: RuleContext, v
 
             if (limit.limitIn) {
                 const allowed = limit.caseSensitive ? limit.limitIn : limit.limitIn.map(v => v.toLowerCase());
-                if (!allowed.includes(compareValue)) {return createError(`值 "${value}" 不是类型 '${valueType}' 允许的值之一。`, ErrorCode.TYPE_VALUE_NOT_IN_LIST);}
+                if (!allowed.includes(compareValue)) {return createError(localize('diag.type.valueNotInList', 'Value "{0}" is not one of the allowed values for type "{1}".', value, valueType), ErrorCode.TYPE_VALUE_NOT_IN_LIST);}
             }
             if (limit.startWith) {
                 const prefixes = limit.caseSensitive ? limit.startWith : limit.startWith.map(v => v.toLowerCase());
-                if (!prefixes.some(p => compareValue.startsWith(p))) {return createError(`值 "${value}" 不符合类型 '${valueType}' 的前缀要求。`, ErrorCode.TYPE_INVALID_PREFIX);}
+                if (!prefixes.some(p => compareValue.startsWith(p))) {return createError(localize('diag.type.invalidPrefix', 'Value "{0}" does not meet the prefix requirement for type "{1}".', value, valueType), ErrorCode.TYPE_INVALID_PREFIX);}
             }
             if (limit.endWith) {
                 const suffixes = limit.caseSensitive ? limit.endWith : limit.endWith.map(v => v.toLowerCase());
-                if (!suffixes.some(s => compareValue.endsWith(s))) {return createError(`值 "${value}" 不符合类型 '${valueType}' 的后缀要求。`, ErrorCode.TYPE_INVALID_SUFFIX);}
+                if (!suffixes.some(s => compareValue.endsWith(s))) {return createError(localize('diag.type.invalidSuffix', 'Value "{0}" does not meet the suffix requirement for type "{1}".', value, valueType), ErrorCode.TYPE_INVALID_SUFFIX);}
             }
             return [];
         }
@@ -64,8 +65,8 @@ function validateValue(value: string, valueType: string, context: RuleContext, v
             
             const items = value ? value.split(',').map(item => item.trim()) : [];
 
-            if (definition.minRange !== undefined && items.length < definition.minRange) {return createError(`类型 '${valueType}' 要求至少 ${definition.minRange} 个值，但只提供了 ${items.length} 个。`, ErrorCode.TYPE_LIST_INVALID_LENGTH);}
-            if (definition.maxRange !== undefined && items.length > definition.maxRange) {return createError(`类型 '${valueType}' 要求最多 ${definition.maxRange} 个值，但提供了 ${items.length} 个。`, ErrorCode.TYPE_LIST_INVALID_LENGTH);}
+            if (definition.minRange !== undefined && items.length < definition.minRange) {return createError(localize('diag.type.listTooShort', 'Type "{0}" requires at least {1} value(s), but only {2} were provided.', valueType, definition.minRange, items.length), ErrorCode.TYPE_LIST_INVALID_LENGTH);}
+            if (definition.maxRange !== undefined && items.length > definition.maxRange) {return createError(localize('diag.type.listTooLong', 'Type "{0}" requires at most {1} value(s), but {2} were provided.', valueType, definition.maxRange, items.length), ErrorCode.TYPE_LIST_INVALID_LENGTH);}
             
             const allErrors: IniDiagnostic[] = [];
             let currentOffsetInValue = 0;
@@ -80,7 +81,7 @@ function validateValue(value: string, valueType: string, context: RuleContext, v
                 const itemErrors = validateValue(trimmedItem, definition.type, context, itemStartIndexInLine);
                 if (itemErrors.length > 0) {
                     itemErrors.forEach(err => {
-                        err.message = `列表项 "${trimmedItem}" 无效: ${err.message}`;
+                        err.message = localize('diag.type.listItemInvalid', 'List item "{0}" is invalid: {1}', trimmedItem, err.message);
                         allErrors.push(err);
                     });
                 }
@@ -91,7 +92,7 @@ function validateValue(value: string, valueType: string, context: RuleContext, v
 
         case ValueTypeCategory.Section:
             if (iniManager.findSection(value) === null) {
-                return createError(`未在项目中找到节 '[${value}]' 的定义。`, ErrorCode.LOGIC_UNDEFINED_SECTION_REFERENCE);
+                return createError(localize('diag.logic.undefinedSection', 'Definition for section "[{0}]" not found in the project.', value), ErrorCode.LOGIC_UNDEFINED_SECTION_REFERENCE);
             }
             return [];
             

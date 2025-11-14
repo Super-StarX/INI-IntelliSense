@@ -1,4 +1,4 @@
-[Read this in Chinese (简体中文)](./CHANGELOG.zh-cn.md)
+[Read this in English](./CHANGELOG.md)
 
 # Change Log
 
