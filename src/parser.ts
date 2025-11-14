@@ -39,6 +39,8 @@ export class INIManager {
     public valueReferences: Map<string, vscode.Location[]> = new Map();
     // 反向索引：从 父节 -> 继承位置列表 的快速查找映射 (用于 [Child]:[Parent])。
     public inheritanceReferences: Map<string, vscode.Location[]> = new Map();
+    // 存储节定义的位置，用于“跳转到定义”
+    private sectionLocations: Map<string, vscode.Location[]> = new Map();
     // 用于调试的详细注册表信息。
     private detailedRegistryInfo: Map<string, RegistryInfo> = new Map();
     // 缓存通过引用推断出的类型，避免重复计算，提升性能。
@@ -47,14 +49,52 @@ export class INIManager {
     /**
      * 清空所有缓存和索引，重置管理器状态。
      */
-    clear() {
-        this.files.clear();
+    private clearAllIndexes() {
         this.sectionToRegistryMap.clear();
         this.detailedRegistryInfo.clear();
         this.valueReferences.clear();
         this.inheritanceReferences.clear();
         this.sectionInheritance.clear();
+        this.sectionLocations.clear();
         this.inferredTypeCache.clear();
+    }
+
+    /**
+     * 清理指定文件贡献的所有索引信息。
+     * 这是实现增量更新的关键步骤。
+     * @param uri 要清理的文件的URI
+     */
+    private clearIndexesForFile(uri: vscode.Uri) {
+        const fsPath = uri.fsPath;
+        // 清理值引用
+        for (const [key, locations] of this.valueReferences.entries()) {
+            const filtered = locations.filter(loc => loc.uri.fsPath !== fsPath);
+            if (filtered.length === 0) {
+                this.valueReferences.delete(key);
+            } else {
+                this.valueReferences.set(key, filtered);
+            }
+        }
+        // 清理继承引用
+        for (const [key, locations] of this.inheritanceReferences.entries()) {
+            const filtered = locations.filter(loc => loc.uri.fsPath !== fsPath);
+            if (filtered.length === 0) {
+                this.inheritanceReferences.delete(key);
+            } else {
+                this.inheritanceReferences.set(key, filtered);
+            }
+        }
+        // 清理节定义位置
+        for (const [key, locations] of this.sectionLocations.entries()) {
+            const filtered = locations.filter(loc => loc.uri.fsPath !== fsPath);
+            if (filtered.length === 0) {
+                this.sectionLocations.delete(key);
+            } else {
+                this.sectionLocations.set(key, filtered);
+            }
+        }
+        // 对于直接映射的索引，需要更复杂的逻辑，因此在全量重建时处理
+        // 注意：增量更新时，sectionToRegistryMap, sectionInheritance 等需要重新构建
     }
     
     /**
@@ -66,30 +106,62 @@ export class INIManager {
     }
 
     /**
-     * 索引指定的所有INI文件。
+     * 全量索引指定的所有INI文件。仅在初始化时调用。
      * @param fileUris 文件URI的数组
      */
     async indexFiles(fileUris: vscode.Uri[]) {
-        this.clear();
+        this.files.clear();
+        this.clearAllIndexes();
 
-        // 第一遍：加载所有文件到内存中。
         for (const fileUri of fileUris) {
             try {
                 const fileContentBytes = await vscode.workspace.fs.readFile(fileUri);
                 const content = Buffer.from(fileContentBytes).toString('utf8');
-                // 仍然解析文件以支持大纲视图等功能，但索引将基于更可靠的文本分析。
-                const parsed = ini.parse(content); 
-                this.files.set(fileUri.fsPath, { content, parsed });
+                this.files.set(fileUri.fsPath, { content, parsed: ini.parse(content) });
             } catch (error) {
-                // 如果解析失败，存储原始内容以支持基于文本的功能。
-                if (error instanceof Error && 'content' in error) {
-                    this.files.set(fileUri.fsPath, { content: (error as any).content, parsed: {} });
-                }
                 console.error(`Failed to parse INI file ${fileUri.fsPath}:`, error);
             }
         }
+        
+        // 全量构建所有索引
+        this.rebuildAllIndexes();
+    }
 
-        // 第二遍：使用原始内容构建所有索引。
+    /**
+     * 增量更新单个文件的索引。
+     * @param uri 变更文件的URI
+     * @param content 可选，文件的最新内容。如果未提供，将从磁盘读取。
+     */
+    async updateFile(uri: vscode.Uri, content?: string) {
+        try {
+            const fileContent = content ?? Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
+            this.files.set(uri.fsPath, { content: fileContent, parsed: ini.parse(fileContent) });
+            
+            // 简单起见，我们选择在任何文件变更时重建所有索引
+            // 这是一个折衷方案，比每次都重新读取所有文件要快得多
+            this.rebuildAllIndexes();
+        } catch (error) {
+            console.error(`Failed to update index for file ${uri.fsPath}:`, error);
+        }
+    }
+
+    /**
+     * 从索引中移除一个文件。
+     * @param uri 被删除文件的URI
+     */
+    removeFile(uri: vscode.Uri) {
+        if (this.files.has(uri.fsPath)) {
+            this.files.delete(uri.fsPath);
+            this.rebuildAllIndexes();
+        }
+    }
+
+    /**
+     * 基于当前 `this.files` 中的内容，重新构建所有索引。
+     */
+    private rebuildAllIndexes() {
+        this.clearAllIndexes();
+        // 依次构建各个索引
         this.buildRegistryIndex();
         this.buildCrossReferencesIndex();
     }
@@ -111,40 +183,28 @@ export class INIManager {
                 const line = lines[i];
                 const trimmedLine = line.trim();
     
-                // 规则 1：总是最先检查是否为节头。
                 if (trimmedLine.startsWith('[')) {
                     const closingBracketIndex = trimmedLine.indexOf(']');
-                    // 确保找到了一个有效的闭合括号
                     if (closingBracketIndex > 0) {
-                        // 提取括号内的完整内容
                         const contentInsideBrackets = trimmedLine.substring(1, closingBracketIndex);
-                        // 通过':'分割来处理继承，并取第一部分作为节名
                         const sectionName = contentInsideBrackets.split(':')[0].trim();
 
-                        // 如果这个节是一个已知的ID列表注册表，则更新我们的状态。
                         if (idListRegistryNames.has(sectionName)) {
                             currentRegistryName = sectionName;
-
-                            // 为调试日志记录此注册表出现的位置
                             if (!this.detailedRegistryInfo.has(sectionName)) {
                                 this.detailedRegistryInfo.set(sectionName, { occurrences: [], ids: new Set() });
                             }
                             this.detailedRegistryInfo.get(sectionName)!.occurrences.push({ filePath, lineNumber: i });
                         } else {
-                            // 如果是任何其他节，我们就不再处于一个注册表内部。
-                            // 这是防止状态污染的关键修复。
                             currentRegistryName = null;
                         }
-                        // 该行是节头，已处理完毕，继续到下一行。
                         continue;
                     }
                 }
     
-                // 规则 2：只有当我们确认处于一个注册表节的内部时，才处理这一行。
                 if (currentRegistryName) {
                     if (trimmedLine === '' || trimmedLine.startsWith(';')) {continue;}
     
-                    // 提取ID值
                     let value = trimmedLine.split(';')[0].trim();
                     if (!value) {continue;}
 
@@ -155,7 +215,6 @@ export class INIManager {
                     
                     if (value) {
                         this.sectionToRegistryMap.set(value, currentRegistryName);
-                        // 同时添加到详细信息中用于计数
                         this.detailedRegistryInfo.get(currentRegistryName)!.ids.add(value);
                     }
                 }
@@ -164,11 +223,11 @@ export class INIManager {
     }
 
     /**
-     * 构建交叉引用索引，此方法会同时扫描值引用（Key=Value）和继承引用（[Child]:[Parent]）。
+     * 构建交叉引用索引，包括值引用、继承引用和节定义位置。
      */
     private buildCrossReferencesIndex() {
+        const sectionRegex = /^\s*\[([^\]:]+)(?::\[([^\]]+)\])?/;
         const keyValueRegex = /^\s*[^;=\s][^=]*=\s*(.*)/;
-        const inheritanceRegex = /^\s*\[([^\]:]+)\]\s*:\s*\[([^\]]+)\]/;
 
         for (const [filePath, fileData] of this.files.entries()) {
             const lines = fileData.content.split(/\r?\n/);
@@ -177,13 +236,20 @@ export class INIManager {
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
 
-                // 检查继承引用
-                const inheritanceMatch = line.match(inheritanceRegex);
-                if (inheritanceMatch) {
-                    const childName = inheritanceMatch[1].trim();
-                    const parentName = inheritanceMatch[2].trim();
-                    if (childName && parentName) {
-                        this.sectionInheritance.set(childName, parentName);
+                // 检查节定义和继承引用
+                const sectionMatch = line.match(sectionRegex);
+                if (sectionMatch) {
+                    const sectionName = sectionMatch[1].trim();
+                    const parentName = sectionMatch[2] ? sectionMatch[2].trim() : null;
+                    
+                    if (sectionName) {
+                        const locations = this.sectionLocations.get(sectionName) || [];
+                        locations.push(new vscode.Location(fileUri, new vscode.Position(i, line.indexOf(sectionName))));
+                        this.sectionLocations.set(sectionName, locations);
+                    }
+
+                    if (parentName) {
+                        this.sectionInheritance.set(sectionName, parentName);
                         const locations = this.inheritanceReferences.get(parentName) || [];
                         const parentStartIndex = line.lastIndexOf(parentName);
                         if (parentStartIndex > -1) {
@@ -204,7 +270,6 @@ export class INIManager {
                     for (const value of values) {
                         const trimmedValue = value.trim();
                         if (trimmedValue) {
-                            // 为了精确匹配，在行的值部分查找
                             const valueStartIndex = line.indexOf(trimmedValue, searchOffset);
                             if (valueStartIndex > -1) {
                                 const range = new vscode.Range(i, valueStartIndex, i, valueStartIndex + trimmedValue.length);
@@ -227,15 +292,24 @@ export class INIManager {
      */
     findSection(name: string): { file: string; content: string }[] {
         const results: { file: string; content: string }[] = [];
-        const escapedSectionName = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const sectionRegex = new RegExp(`^\\[${escapedSectionName}\\]`, 'im');
-    
-        for (const [filePath, { content }] of this.files.entries()) {
-            if (sectionRegex.test(content)) {
-                results.push({ file: filePath, content });
+        const locations = this.sectionLocations.get(name) || [];
+
+        for (const location of locations) {
+            const fileData = this.files.get(location.uri.fsPath);
+            if (fileData) {
+                results.push({ file: location.uri.fsPath, content: fileData.content });
             }
         }
         return results;
+    }
+
+    /**
+     * 在索引中查找节的所有定义位置。
+     * @param name 节名
+     * @returns vscode.Location 数组
+     */
+    findSectionLocations(name: string): vscode.Location[] {
+        return this.sectionLocations.get(name) || [];
     }
 
     /**
@@ -294,7 +368,6 @@ export class INIManager {
                         return { location, lineText: line.trim() };
                     }
                     if (nextSectionRegex.test(trimmedLine)) {
-                        // 在同一个文件内，如果遇到了下一个节，就停止对这个文件的搜索
                         inSection = false; 
                     }
                 }
@@ -340,47 +413,29 @@ export class INIManager {
      */
     public getTypeForSection(sectionName: string, visited: Set<string> = new Set()): string {
         if (!this.schemaManager) {return sectionName;}
-
-        // --- 0. 递归保护 ---
-        if (visited.has(sectionName)) {
-            return sectionName; // 检测到循环引用，返回自身以中断
-        }
+        if (visited.has(sectionName)) { return sectionName; }
         visited.add(sectionName);
-
-        // --- 1. 检查缓存 ---
-        if (this.inferredTypeCache.has(sectionName)) {
-            return this.inferredTypeCache.get(sectionName)!;
-        }
-
-        // --- 2. 直接类型匹配 ---
+        if (this.inferredTypeCache.has(sectionName)) { return this.inferredTypeCache.get(sectionName)!; }
         if (this.schemaManager.isSchemaType(sectionName)) {
             this.inferredTypeCache.set(sectionName, sectionName);
             return sectionName;
         }
-
-        // --- 3. 注册表查找 ---
         const registryName = this.findRegistryForSection(sectionName);
         if (registryName) {
             const typeName = this.schemaManager.getTypeForRegistry(registryName) ?? sectionName;
             this.inferredTypeCache.set(sectionName, typeName);
             return typeName;
         }
-
-        // --- 4. 通过引用反向推断 ---
         const references = this.valueReferences.get(sectionName);
         if (references) {
             for (const location of references) {
                 const lineText = this.files.get(location.uri.fsPath)?.content.split(/\r?\n/)[location.range.start.line];
                 if (!lineText) {continue;}
-
                 const kvMatch = lineText.match(/^\s*([^;=\s][^=]*?)\s*=/);
                 if (!kvMatch) {continue;}
-
                 const key = kvMatch[1].trim();
                 const contextSectionName = this.getSectionNameAtLine(location.uri.fsPath, location.range.start.line);
                 if (!contextSectionName) {continue;}
-
-                // 递归调用以确定引用上下文的类型
                 const contextTypeName = this.getTypeForSection(contextSectionName, visited);
                 const allKeys = this.schemaManager.getAllKeysForType(contextTypeName);
                 
@@ -392,15 +447,12 @@ export class INIManager {
                     }
                 }
                 
-                // 如果找到的期望类型是一个复杂的对象类型（定义在[Sections]中），则推断成功
                 if (valueType && this.schemaManager.isComplexType(valueType)) {
                     this.inferredTypeCache.set(sectionName, valueType);
                     return valueType;
                 }
             }
         }
-
-        // --- 5. 回退 ---
         this.inferredTypeCache.set(sectionName, sectionName);
         return sectionName;
     }
@@ -479,13 +531,7 @@ export class INIManager {
      * @returns 包含所有节名的 Set
      */
     public getAllSectionNames(): Set<string> {
-        const sectionNames = new Set<string>();
-        for (const fileData of this.files.values()) {
-            if (fileData.parsed) {
-                Object.keys(fileData.parsed).forEach(name => sectionNames.add(name));
-            }
-        }
-        return sectionNames;
+        return new Set(this.sectionLocations.keys());
     }
     
     /**

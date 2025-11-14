@@ -25,7 +25,7 @@ function validateValue(value: string, valueType: string, context: RuleContext, v
     switch (category) {
         case ValueTypeCategory.Primitive:
             if (valueType === 'int' && !/^-?\d+$/.test(value)) {return createError(localize('diag.type.invalidInteger', 'Value "{0}" is not a valid integer.', value), ErrorCode.TYPE_INVALID_INTEGER);}
-            if (valueType === 'float' && isNaN(parseFloat(value))) {return createError(localize('diag.type.invalidFloat', 'Value "{0}" is not a valid floating-point number.', value), ErrorCode.TYPE_INVALID_FLOAT);}
+            if ((valueType === 'float' || valueType === 'double') && isNaN(parseFloat(value))) {return createError(localize('diag.type.invalidFloat', 'Value "{0}" is not a valid floating-point number.', value), ErrorCode.TYPE_INVALID_FLOAT);}
             return [];
 
         case ValueTypeCategory.NumberLimit: {

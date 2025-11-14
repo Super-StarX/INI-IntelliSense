@@ -260,7 +260,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			needsFullDiagnosticUpdate = true;
 		}
 		if (needsFullDiagnosticUpdate) {
-			vscode.workspace.textDocuments.forEach(doc => updateDiagnostics(doc));
+			vscode.workspace.textDocuments.forEach(doc => triggerUpdateDiagnostics(doc));
 		}
 		if (needsDecoratorUpdate) {
 			overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
@@ -275,18 +275,33 @@ export async function activate(context: vscode.ExtensionContext) {
 	const watcher = vscode.workspace.createFileSystemWatcher('**/*.ini');
 	context.subscriptions.push(watcher);
 	
-	const reindexAndUpdateDiagnostics = async (uri: vscode.Uri) => {
-		console.log(`INI 文件变更: ${uri.fsPath}, 正在重新索引...`);
-		await indexWorkspaceFiles();
+	const onFileChange = async (uri: vscode.Uri) => {
+		console.log(`INI 文件变更: ${uri.fsPath}, 正在增量更新索引...`);
+		await iniManager.updateFile(uri); // 增量更新
+		// 重新校验所有打开的文档，因为一个文件的变更可能影响其他文件
 		vscode.workspace.textDocuments.forEach(doc => {
-			updateDiagnostics(doc);
-			overrideDecorator.triggerUpdateDecorations(doc.uri);
+			if (doc.languageId === LANGUAGE_ID) {
+				triggerUpdateDiagnostics(doc);
+				overrideDecorator.triggerUpdateDecorations(doc.uri);
+			}
 		});
+		outlineProvider.refresh();
 	};
 
-	watcher.onDidCreate(reindexAndUpdateDiagnostics);
-	watcher.onDidDelete(reindexAndUpdateDiagnostics);
-	watcher.onDidChange(reindexAndUpdateDiagnostics);
+	const onFileDelete = (uri: vscode.Uri) => {
+		console.log(`INI 文件删除: ${uri.fsPath}, 正在移除索引...`);
+		iniManager.removeFile(uri); // 增量移除
+		vscode.workspace.textDocuments.forEach(doc => {
+			if (doc.languageId === LANGUAGE_ID) {
+				triggerUpdateDiagnostics(doc);
+			}
+		});
+		outlineProvider.refresh();
+	};
+
+	watcher.onDidCreate(onFileChange);
+	watcher.onDidChange(onFileChange); // 通常由保存触发
+	watcher.onDidDelete(onFileDelete);
 
 	// 注册调试命令：显示当前上下文的详细调试信息
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.showDebugInfo', () => {
@@ -355,14 +370,33 @@ export async function activate(context: vscode.ExtensionContext) {
 		outputChannel.show();
 	}));
 
+	const diagnosticDebounceTimers = new Map<string, NodeJS.Timeout>();
+
+	/**
+	 * 触发诊断更新，使用防抖机制以避免在快速输入时造成性能问题。
+	 * @param document 需要更新诊断的文本文档
+	 */
+	const triggerUpdateDiagnostics = (document: vscode.TextDocument) => {
+		const documentUriString = document.uri.toString();
+		if (diagnosticDebounceTimers.has(documentUriString)) {
+			clearTimeout(diagnosticDebounceTimers.get(documentUriString)!);
+		}
+
+		diagnosticDebounceTimers.set(documentUriString, setTimeout(() => {
+			diagnosticDebounceTimers.delete(documentUriString);
+			// 当防抖结束后，我们仍然不直接调用诊断，而是将其放入事件队列的末尾
+			// 这样可以确保例如高亮等更高优先级的UI任务先执行
+			setTimeout(() => updateDiagnostics(document), 0);
+		}, 300));
+	};
+
+
     /**
-     * 更新单个文档的诊断信息。
-	 * 此函数作为协调者，调用诊断引擎来执行所有实际的检查工作。
+     * 实际执行诊断更新的函数。
      * @param document 需要更新诊断的文本文档
-     * @param contentChanges 文档变更的数组，用于增量更新
      */
-    const updateDiagnostics = async (document: vscode.TextDocument, contentChanges?: readonly vscode.TextDocumentContentChangeEvent[]) => {
-        if (document.languageId !== LANGUAGE_ID) {
+    const updateDiagnostics = (document: vscode.TextDocument) => {
+        if (document.languageId !== LANGUAGE_ID || document.isClosed) {
             return;
         }
 
@@ -377,49 +411,41 @@ export async function activate(context: vscode.ExtensionContext) {
 			disabledErrorCodes
 		};
 
-		const existingDiagnostics = diagnostics.get(document.uri) || [];
-		const externalDiagnostics = existingDiagnostics.filter(d => d.source === 'INI Validator');
-		let internalDiagnostics: IniDiagnostic[];
-
-		// 如果没有变更信息，或变更信息为空，则执行全量扫描
-		if (!contentChanges || contentChanges.length === 0) {
-			internalDiagnostics = diagnosticEngine.analyze(context);
-			diagnostics.set(document.uri, [...externalDiagnostics, ...internalDiagnostics]);
-			return;
-		}
-
-		// 增量更新逻辑
-		let minLine = Infinity;
-		let maxLine = -1;
-		for (const change of contentChanges) {
-			minLine = Math.min(minLine, change.range.start.line);
-			const changeEndLine = change.range.start.line + (change.text.match(/\n/g) || []).length;
-			maxLine = Math.max(maxLine, changeEndLine, change.range.end.line);
-		}
-
-		if (minLine > maxLine) {
-			return; // 没有实际的行变更
-		}
-
-		const affectedRange = new vscode.Range(minLine, 0, maxLine, Number.MAX_SAFE_INTEGER);
-		const newInternalDiagnostics = diagnosticEngine.analyze(context, affectedRange);
-		
-		// 过滤掉受影响范围内的旧诊断，然后合并新的诊断
-		const unaffectedDiagnostics = existingDiagnostics.filter(
-			(d): d is IniDiagnostic => d.source !== 'INI Validator' && !affectedRange.contains(d.range)
-		);
-		internalDiagnostics = [...unaffectedDiagnostics, ...newInternalDiagnostics];
+		const externalDiagnostics = (diagnostics.get(document.uri) || []).filter(d => d.source === 'INI Validator');
+		const internalDiagnostics = diagnosticEngine.analyze(context);
 
 		diagnostics.set(document.uri, [...externalDiagnostics, ...internalDiagnostics]);
     };
 
-	// 监听文档事件，实时更新诊断
-    vscode.workspace.onDidChangeTextDocument(event => updateDiagnostics(event.document, event.contentChanges));
-    vscode.workspace.onDidOpenTextDocument(document => updateDiagnostics(document));
-    vscode.workspace.onDidCloseTextDocument(document => diagnostics.delete(document.uri));
+	// 监听文档事件，以非阻塞方式实时更新索引和诊断
+    vscode.workspace.onDidChangeTextDocument(async event => {
+		if (event.document.languageId === LANGUAGE_ID) {
+			// 1. 立即触发增量索引更新（这个操作被设计得很快）
+			await iniManager.updateFile(event.document.uri, event.document.getText());
+			// 2. 使用防抖机制触发诊断更新（这个操作可能较慢）
+			triggerUpdateDiagnostics(event.document);
+		}
+	});
+
+    vscode.workspace.onDidOpenTextDocument(document => {
+		if (document.languageId === LANGUAGE_ID) {
+			// 确保新打开的文件被索引
+			iniManager.updateFile(document.uri, document.getText()).then(() => {
+				triggerUpdateDiagnostics(document);
+			});
+		}
+	});
+    vscode.workspace.onDidCloseTextDocument(document => {
+		diagnostics.delete(document.uri);
+		// 不需要从索引中移除，因为文件仍然存在于磁盘上
+	});
 
     // 为所有已打开的文件初始运行一次诊断
-    vscode.workspace.textDocuments.forEach(doc => updateDiagnostics(doc));
+    vscode.workspace.textDocuments.forEach(doc => {
+		if (doc.languageId === LANGUAGE_ID) {
+			triggerUpdateDiagnostics(doc);
+		}
+	});
 
 	// 注册所有语言特性提供者
 	context.subscriptions.push(
@@ -433,22 +459,16 @@ export async function activate(context: vscode.ExtensionContext) {
 				}
 				const word = document.getText(wordRange);
 
+				// 优先在当前文件中查找
 				const lineInCurrentFile = iniManager.findSectionInContent(document.getText(), word);
 				if (lineInCurrentFile !== null) {
 					return new vscode.Location(document.uri, new vscode.Position(lineInCurrentFile, 0));
 				}
-
-				const locations: vscode.Location[] = [];
-				for (const [filePath, data] of iniManager.files.entries()) {
-					if (filePath === document.uri.fsPath) {continue;}
-					const line = iniManager.findSectionInContent(data.content, word);
-					if (line !== null) {
-						locations.push(new vscode.Location(vscode.Uri.file(filePath), new vscode.Position(line, 0)));
-					}
-				}
-
-				if (locations.length > 0) {
-					return locations;
+				
+				// 然后在整个索引中查找
+				const sectionLocations = iniManager.findSectionLocations(word);
+				if (sectionLocations.length > 0) {
+					return sectionLocations;
 				}
 				
 				return [];

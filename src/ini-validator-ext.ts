@@ -186,7 +186,7 @@ export class INIValidatorExt {
      */
     private async validatePath() {
         const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-        let configuredPath = config.get<string>('exePath'); // 修复: 使用相对键
+        let configuredPath = config.get<string>('exePath');
         if (!configuredPath) {
             this.updateStatus('unconfigured'); return;
         }
@@ -231,7 +231,7 @@ export class INIValidatorExt {
      */
     private async promptIfUnconfigured() {
         const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-        const dontAsk = config.get<boolean>('dontAskToConfigureValidator'); // 修复: 使用相对键
+        const dontAsk = config.get<boolean>('dontAskToConfigureValidator');
 
         if (this.status === 'unconfigured' && !dontAsk) {
             const configureAction = localize('validator.prompt.configure.action.configure', 'Configure Path');
@@ -248,7 +248,7 @@ export class INIValidatorExt {
             } else if (selection === downloadAction) {
                 vscode.env.openExternal(vscode.Uri.parse(DOWNLOAD_URL));
             } else if (selection === dontAskAction) {
-                await config.update('dontAskToConfigureValidator', true, vscode.ConfigurationTarget.Global); // 修复: 使用相对键
+                await config.update('dontAskToConfigureValidator', true, vscode.ConfigurationTarget.Global);
             }
         }
     }
@@ -290,13 +290,13 @@ export class INIValidatorExt {
         }
 
         const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-        const folderPath = config.get<string>('validationFolderPath'); // 修复: 使用相对键
+        const folderPath = config.get<string>('validationFolderPath');
         if (!folderPath) {
             vscode.window.showWarningMessage(localize('validator.run.folderNotSet', 'Mod validation root folder is not configured. Skipped INI Validator check.'));
             return false;
         }
 
-        const files = config.get<object>('validationFiles'); // 修复: 使用相对键
+        const files = config.get<object>('validationFiles');
         const exeDir = path.dirname(this.exePath);
         const filesSectionContent = Object.entries(files || {}).map(([k, v]) => `${k}=${v}`).join('\n');
         const settingsContent = `[INIValidator]\nFolderPath=${folderPath}\nJsonLog=true\n\n[Files]\n${filesSectionContent}\n`;

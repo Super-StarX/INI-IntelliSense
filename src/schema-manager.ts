@@ -70,12 +70,12 @@ export class SchemaManager {
     private isLoaded: boolean = false;
     private schemaFilePath: string | null = null;
 
-    // --- 新增: 用于存储高级类型校验规则 ---
+    // 用于存储高级类型校验规则
     private numberLimits = new Map<string, NumberLimit>();
     private stringLimits = new Map<string, StringLimit>();
     private listDefinitions = new Map<string, ListDefinition>();
 
-    // --- 新增: 用于快速反向查找类型所属的分类 ---
+    // 用于快速反向查找类型所属的分类
     private complexTypes: Set<string> = new Set();
     private numberLimitTypes: Set<string> = new Set();
     private stringLimitTypes: Set<string> = new Set();
@@ -276,7 +276,7 @@ export class SchemaManager {
         if (this.numberLimitTypes.has(typeName)) {return ValueTypeCategory.NumberLimit;}
         if (this.stringLimitTypes.has(typeName)) {return ValueTypeCategory.StringLimit;}
         if (this.listTypes.has(typeName)) {return ValueTypeCategory.List;}
-        if (['int', 'float', 'string'].includes(typeName)) {return ValueTypeCategory.Primitive;}
+        if (['int', 'float', 'double', 'string'].includes(typeName)) {return ValueTypeCategory.Primitive;}
         return ValueTypeCategory.Unknown;
     }
 
