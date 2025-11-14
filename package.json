@@ -34,6 +34,37 @@
         "path": "./syntaxes/ini.tmLanguage.json"
       }
     ],
+    "semanticTokenProvider": {
+      "id": "iniSemanticProvider",
+      "selector": [
+        {
+          "language": "ra2-ini"
+        }
+      ],
+      "legend": {
+        "tokenTypes": [
+          "comment",
+          "sectionBracket",
+          "sectionContent",
+          "sectionInherit",
+          "keyPart1",
+          "keyPart2",
+          "keyPart3",
+          "operator",
+          "value",
+          "valueComma",
+          "valueString"
+        ],
+        "tokenModifiers": []
+      }
+    },
+    "themes": [
+      {
+        "label": "RA2 INI Dark Theme",
+        "uiTheme": "vs-dark",
+        "path": "./themes/color-theme.json"
+      }
+    ],
     "files.associations": {
       "*.ini": "ra2-ini"
     },
@@ -207,61 +238,6 @@
           "type": "boolean",
           "default": true,
           "description": "%configuration.properties.diagnostics.spaceAfterComment.description%"
-        },
-        "ra2-ini-intellisense.colors.sectionBracket": {
-          "type": "string",
-          "default": "#FFD700",
-          "description": "%configuration.properties.colors.sectionBracket.description%"
-        },
-        "ra2-ini-intellisense.colors.sectionContent": {
-          "type": "string",
-          "default": "#fffab2",
-          "description": "%configuration.properties.colors.sectionContent.description%"
-        },
-        "ra2-ini-intellisense.colors.sectionInherit": {
-          "type": "string",
-          "default": "#fffab29a",
-          "description": "%configuration.properties.colors.sectionInherit.description%"
-        },
-        "ra2-ini-intellisense.colors.keyPart1": {
-          "type": "string",
-          "default": "#50b0ff",
-          "description": "%configuration.properties.colors.keyPart1.description%"
-        },
-        "ra2-ini-intellisense.colors.keyPart2": {
-          "type": "string",
-          "default": "#509cff",
-          "description": "%configuration.properties.colors.keyPart2.description%"
-        },
-        "ra2-ini-intellisense.colors.keyPart3": {
-          "type": "string",
-          "default": "#5079ff",
-          "description": "%configuration.properties.colors.keyPart3.description%"
-        },
-        "ra2-ini-intellisense.colors.operator": {
-          "type": "string",
-          "default": "#ffffff",
-          "description": "%configuration.properties.colors.operator.description%"
-        },
-        "ra2-ini-intellisense.colors.value": {
-          "type": "string",
-          "default": "#82c7ff",
-          "description": "%configuration.properties.colors.value.description%"
-        },
-        "ra2-ini-intellisense.colors.valueComma": {
-          "type": "string",
-          "default": "#ffd000",
-          "description": "%configuration.properties.colors.valueComma.description%"
-        },
-        "ra2-ini-intellisense.colors.valueString": {
-          "type": "string",
-          "default": "#a76c00",
-          "description": "%configuration.properties.colors.valueString.description%"
-        },
-        "ra2-ini-intellisense.colors.comment": {
-          "type": "string",
-          "default": "#808080",
-          "description": "%configuration.properties.colors.comment.description%"
         }
       }
     },

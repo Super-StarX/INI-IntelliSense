@@ -4,7 +4,7 @@ import { INIManager } from './parser';
 import { INIValidatorExt } from './ini-validator-ext';
 import { INIOutlineProvider } from './outline-provider';
 import { SchemaManager } from './schema-manager';
-import { DynamicThemeManager } from './dynamic-theme';
+import { IniSemanticTokensProvider, legend } from './semantic-tokens-provider';
 import { DiagnosticEngine } from './diagnostics/engine';
 import { ErrorCode } from './diagnostics/error-codes';
 import { IniDiagnostic } from './diagnostics/diagnostic';
@@ -34,9 +34,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const selector = { language: LANGUAGE_ID };
 
-	// 初始化动态主题管理器，负责自定义语法高亮
-	const themeManager = new DynamicThemeManager();
-	context.subscriptions.push(themeManager);
+	// 注册高性能的语义化高亮提供器
+	context.subscriptions.push(
+		vscode.languages.registerDocumentSemanticTokensProvider(selector, new IniSemanticTokensProvider(), legend)
+	);
 
 	// 初始化继承覆盖装饰器
 	const overrideDecorator = new OverrideDecorator(context, iniManager, schemaManager);
@@ -263,9 +264,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 		if (needsDecoratorUpdate) {
 			overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
-		}
-		if (e.affectsConfiguration('ra2-ini-intellisense.colors')) {
-			themeManager.reloadDecorations();
 		}
 		if (e.affectsConfiguration('ra2-ini-intellisense.decorations')) {
 			overrideDecorator.reload();

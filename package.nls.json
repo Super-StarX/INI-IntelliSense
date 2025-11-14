@@ -25,16 +25,5 @@
     "configuration.properties.diagnostics.spaceAfterEquals.description": "Whether to check and warn about extra spaces to the right of the equals sign (=).",
     "configuration.properties.diagnostics.leadingWhitespace.description": "Whether to check and warn about extra whitespace at the beginning of a line.",
     "configuration.properties.diagnostics.spacesBeforeComment.description": "The exact number of spaces that should precede a comment character (;). Set to null or leave empty to disable this check.",
-    "configuration.properties.diagnostics.spaceAfterComment.description": "Whether to check and warn about missing space after the comment character (;) (e.g., ';comment' instead of '; comment').",
-    "configuration.properties.colors.sectionBracket.description": "Color for the brackets `[]` of a section.",
-    "configuration.properties.colors.sectionContent.description": "Color for the content of a section (e.g., `[Globals]`).",
-    "configuration.properties.colors.sectionInherit.description": "Color for the inheritance part of a section (e.g., `:[AbstractType]`).",
-    "configuration.properties.colors.keyPart1.description": "Color for the first part of a key (e.g., `Key.sub.sub`).",
-    "configuration.properties.colors.keyPart2.description": "Color for the second part of a key (e.g., `key.Sub.sub`).",
-    "configuration.properties.colors.keyPart3.description": "Color for the third and subsequent parts of a key (e.g., `key.sub.Sub`).",
-    "configuration.properties.colors.operator.description": "Color for the equals sign `=`.",
-    "configuration.properties.colors.value.description": "Default color for a value.",
-    "configuration.properties.colors.valueComma.description": "Color for the comma `,` between values.",
-    "configuration.properties.colors.valueString.description": "Color for quoted strings `\"...\"`.",
-    "configuration.properties.colors.comment.description": "Color for comments `;...`."
+    "configuration.properties.diagnostics.spaceAfterComment.description": "Whether to check and warn about missing space after the comment character (;) (e.g., ';comment' instead of '; comment')."
 }
