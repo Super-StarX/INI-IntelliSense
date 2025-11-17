@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as https from 'https';
+import { localize } from './i18n';
 
 /**
  * 管理欢迎和设置向导的 Webview 面板
@@ -222,113 +223,122 @@ export class WelcomePanel {
                         <div class="brand-header animated">
                             <svg class="brand-logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path fill="#00aaff" d="M50 0L61.2 38.8L100 50L61.2 61.2L50 100L38.8 61.2L0 50L38.8 38.8L50 0Z"/></svg>
                             <div class="brand-name">
-                                <h2>星轨工作室</h2>
-                                <p>Starry Orbit Studio</p>
+                                <h2>${localize('welcome.brand.name', 'Starry Orbit Studio')}</h2>
+                                <p>${localize('welcome.brand.subname', 'Presents')}</p>
                             </div>
                         </div>
+
                         <div class="info-module animated" style="animation-delay: 0.1s;">
-                            <h3>欢迎来到INI Modding的新时代</h3>
-                            <p><strong>INI IntelliSense</strong> 不仅仅是一个语法高亮工具。它是一个为《红色警戒2》Mod开发量身打造的、功能强大的 Visual Studio Code 扩展，旨在将现代IDE的强大功能带入古老的INI世界。由同样热爱Mod开发的我们——星轨工作室，倾力打造。</p>
-                            <p>我们深知，INI配置的复杂性、代码间的隐性关联以及缺乏有效的错误检查，是长期困扰Mod开发者的痛点。本插件正是为了解决这些问题而生，它将成为您在Mod创作道路上最可靠的伙伴。</p>
+                            <h3>${localize('welcome.welcome.title', 'A Revolution in INI Modding')}</h3>
+                            <p>${localize('welcome.welcome.p1', 'We know every Red Alert 2 mod author has spent countless nights with Notepad, grappling with errors from a single typo. INI IntelliSense is here to end that.')}</p>
+                            <p>${localize('welcome.welcome.p2', 'This is more than a plugin; it\'s a modern development solution crafted by us—Starry Orbit Studio—to bring the power and intelligence of a modern IDE to the classic INI world, letting you focus on creativity, not debugging.')}</p>
                         </div>
+
                          <div class="info-module animated" style="animation-delay: 0.2s;">
-                            <h3>核心功能亮点</h3>
+                            <h3>${localize('welcome.features.title', 'Core Feature Highlights')}</h3>
                             <ul class="features-list">
                                 <li>
                                     <span class="feature-icon">💡</span>
-                                    <div class="feature-text"><strong>智能感知</strong><p>基于INI Dictionary的精确代码补全、类型检查和实时错误诊断，让您在编写时充满自信。</p></div>
+                                    <div class="feature-text"><strong>${localize('welcome.features.f1.title', 'Total IntelliSense')}</strong><p>${localize('welcome.features.f1.desc', 'Context-aware completion for keys based on section type (including inheritance), hover-to-inspect with override details, and type-driven value completion (booleans, colors, registered IDs).')}</p></div>
                                 </li>
                                 <li>
                                     <span class="feature-icon">🔗</span>
-                                    <div class="feature-text"><strong>继承可视化</strong><p>清晰展示代码的覆盖关系，直观追溯父级定义，轻松驾驭复杂的继承结构。</p></div>
+                                    <div class="feature-text"><strong>${localize('welcome.features.f2.title', 'Inheritance & Reference Visualization')}</strong><p>${localize('welcome.features.f2.desc', 'A clear arrow (↑) indicates overridden keys. CodeLens above sections shows reference and inheritor counts, demystifying your codebase structure.')}</p></div>
                                 </li>
                                 <li>
                                     <span class="feature-icon">🔎</span>
-                                    <div class="feature-text"><strong>全局跳转与引用</strong><p>Ctrl+点击，瞬间找到任何单位的定义。右键“查找所有引用”，全局追溯其使用情况。</p></div>
+                                    <div class="feature-text"><strong>${localize('welcome.features.f3.title', 'Global Navigation & Traceability')}</strong><p>${localize('welcome.features.f3.desc', 'Ctrl+Click any ID to jump to its definition across files. Right-click a section name to find all its references for easy refactoring and analysis.')}</p></div>
                                 </li>
                                 <li>
                                     <span class="feature-icon">🛡️</span>
-                                    <div class="feature-text"><strong>深度逻辑校验</strong><p>与社区标准工具 <code>INIValidator.exe</code> 无缝集成，捕获那些仅靠语法检查无法发现的棘手逻辑错误。</p></div>
+                                    <div class="feature-text"><strong>${localize('welcome.features.f4.title', 'Built-in Real-time Diagnostics')}</strong><p>${localize('welcome.features.f4.desc', 'Live checking for code style violations (e.g., spacing) and robust type validation (int, float, ranges, enums) that catches errors as you type.')}</p></div>
                                 </li>
                             </ul>
                         </div>
-                         <div class="info-module animated" style="animation-delay: 0.3s;">
-                            <h3>我们对质量的承诺</h3>
-                            <p>我们提供的 <strong>INI Dictionary</strong> 是一个由星轨工作室发起并维护的、持续更新的开源项目。它不是网络上某个过时的文件，而是我们对高质量开发工具承诺的一部分，确保您能获得最准确、最前沿的规则支持。</p>
-                            <a href="https://github.com/Starry-Orbit-Studio/RA2-INI-Dictionary" class="github-button" title="为INI Dictionary做出贡献">
+
+                        <div class="info-module animated" style="animation-delay: 0.3s;">
+                            <h3>${localize('welcome.philosophy.title', 'The Philosophy: Schema-Driven Intelligence')}</h3>
+                            <p>${localize('welcome.philosophy.p1', 'The "secret weapon" behind this extension\'s power is that it\'s Schema-Driven. We\'ve abstracted the entire ruleset of Red Alert 2 INI—object types, properties, value types, and inheritance—into a configurable file: the INI Dictionary.')}</p>
+                            <p>${localize('welcome.philosophy.p2', 'This "dictionary" is the brain of the extension. It allows the tool to truly "understand" your code, not just "see" it. Activating its full potential starts with configuring this file on the right.')}</p>
+                        </div>
+                        
+                         <div class="info-module animated" style="animation-delay: 0.4s;">
+                            <h3>${localize('welcome.dictionary.title', 'About the INI Dictionary Project')}</h3>
+                            <p>${localize('welcome.dictionary.p1', 'The INI Dictionary file is not a static document. It\'s a vibrant, open-source project initiated and maintained by Starry Orbit Studio. It represents the collective wisdom of the community, constantly updated to keep pace with the latest modding platforms (like Phobos and Ares).')}</p>
+                            <a href="https://github.com/Starry-Orbit-Studio/RA2-INI-Dictionary" class="github-button" title="${localize('welcome.dictionary.button.tooltip', 'Contribute to the INI Dictionary')}">
                                 <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><title>GitHub</title><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
-                                欢迎贡献
+                                ${localize('welcome.dictionary.button.text', 'Contribute to INI Dictionary')}
                             </a>
                         </div>
                     </div>
                     <div class="right-panel">
-                        <header class="header animated" style="animation-delay: 0.4s;">
-                            <h1>配置向导</h1>
-                            <p class="subtitle">让我们为您的项目激活全部潜能</p>
+                        <header class="header animated" style="animation-delay: 0.5s;">
+                            <h1>${localize('welcome.rightPanel.title', 'Configuration Wizard')}</h1>
+                            <p class="subtitle">${localize('welcome.rightPanel.subtitle', 'Let\'s unlock the full potential for your project')}</p>
                         </header>
                         
-                        <div class="progress-stepper animated" style="animation-delay: 0.5s;">
-                           <div class="progress-node" id="progress-node-1"><div class="node-circle"><span>1</span></div><div class="node-label">项目目录</div></div>
-                           <div class="progress-node" id="progress-node-2"><div class="node-circle"><span>2</span></div><div class="node-label">INI字典</div></div>
-                           <div class="progress-node" id="progress-node-3"><div class="node-circle"><span>🎉</span></div><div class="node-label">完成</div></div>
+                        <div class="progress-stepper animated" style="animation-delay: 0.6s;">
+                           <div class="progress-node" id="progress-node-1"><div class="node-circle"><span>1</span></div><div class="node-label">${localize('welcome.step1.label', 'Project Directory')}</div></div>
+                           <div class="progress-node" id="progress-node-2"><div class="node-circle"><span>2</span></div><div class="node-label">${localize('welcome.step2.label', 'INI Dictionary')}</div></div>
+                           <div class="progress-node" id="progress-node-3"><div class="node-circle"><span>🎉</span></div><div class="node-label">${localize('welcome.step3.label', 'Finish')}</div></div>
                         </div>
 
                         <div class="steps-container">
-                            <div id="step1" class="step-module animated" style="animation-delay: 0.6s;">
+                            <div id="step1" class="step-module animated" style="animation-delay: 0.7s;">
                                 <div class="step-header">
-                                    <h2 class="step-title">1. 配置项目目录 (必需)</h2>
+                                    <h2 class="step-title">${localize('welcome.step1.title', '1. Configure Project Directory (Required)')}</h2>
                                 </div>
-                                <p class="step-description">设定您的Mod项目根目录。这是所有智能分析的起点。</p>
+                                <p class="step-description">${localize('welcome.step1.desc', 'Set your Mod project\'s root directory. This is the starting point for all intelligent analysis.')}</p>
                                 <div class="input-container">
-                                    <input type="text" id="mod-path-input" class="config-input" placeholder="例如: C:\\Games\\RA2\\MyMod">
+                                    <input type="text" id="mod-path-input" class="config-input" placeholder="${localize('welcome.step1.placeholder', 'e.g., C:\\Games\\RA2\\MyMod')}">
                                 </div>
                                 <div class="actions">
                                     <button id="use-workspace-btn">
-                                        <span>📁</span> 使用当前工作区
+                                        <span>📁</span> ${localize('welcome.step1.button.workspace', 'Use Current Workspace')}
                                     </button>
                                     <button id="browse-folder-btn">
-                                        <span>🔍</span> 手动浏览...
+                                        <span>🔍</span> ${localize('welcome.step1.button.browse', 'Browse Manually...')}
                                     </button>
                                 </div>
                             </div>
 
-                            <div id="step2" class="step-module animated" style="animation-delay: 0.7s;">
+                            <div id="step2" class="step-module animated" style="animation-delay: 0.8s;">
                                 <div class="step-header">
-                                    <h2 class="step-title">2. 配置INI字典</h2>
+                                    <h2 class="step-title">${localize('welcome.step2.title', '2. Configure INI Dictionary')}</h2>
                                 </div>
-                                <p class="step-description">注入官方INI Dictionary，为代码补全与错误检查提供动力。</p>
+                                <p class="step-description">${localize('welcome.step2.desc', 'Inject the official INI Dictionary to power code completion and error checking.')}</p>
                                 <div class="input-container">
-                                    <input type="text" id="dict-path-input" class="config-input" placeholder="例如: C:\\...\\INIDictionary.ini">
+                                    <input type="text" id="dict-path-input" class="config-input" placeholder="${localize('welcome.step2.placeholder', 'e.g., C:\\...\\INIDictionary.ini')}">
                                 </div>
                                 <div class="actions">
                                     <button id="download-dict-btn" class="button-primary">
-                                       <span>☁️</span> 自动下载与配置
+                                       <span>☁️</span> ${localize('welcome.step2.button.download', 'Auto-Download & Configure')}
                                     </button>
                                     <button id="select-dict-btn">
-                                        <span>📄</span> 使用本地字典...
+                                        <span>📄</span> ${localize('welcome.step2.button.local', 'Use Local Dictionary...')}
                                     </button>
                                 </div>
                             </div>
 
-                            <div id="step3" class="step-module animated" style="animation-delay: 0.8s;">
+                            <div id="step3" class="step-module animated" style="animation-delay: 0.9s;">
                                 <div class="step-header">
-                                    <h2 class="step-title">3. 配置检测白名单 (可选)</h2>
+                                    <h2 class="step-title">${localize('welcome.step3.title', '3. Configure Indexing Whitelist (Optional)')}</h2>
                                 </div>
-                                <p class="step-description">定义插件需要关注的文件。您可以编辑下面的规则（每行一个Glob模式）。</p>
+                                <p class="step-description">${localize('welcome.step3.desc', 'Define which files the extension should track. You can edit the rules below (one Glob pattern per line).')}</p>
                                 <div class="input-container">
                                     <textarea id="indexing-patterns-input" class="config-textarea" rows="5"></textarea>
                                 </div>
                                 <div class="actions">
                                     <button id="customize-indexing-btn">
-                                        <span>⚙️</span> 在settings.json中编辑
+                                        <span>⚙️</span> ${localize('welcome.step3.button.settings', 'Edit in settings.json')}
                                     </button>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="finish-button-container animated" style="animation-delay: 0.9s;">
+                        <div class="finish-button-container animated" style="animation-delay: 1s;">
                             <button id="finish-btn">
-                                <span>完成配置并关闭</span>
+                                <span>${localize('welcome.finishButton.text', 'Finish Setup & Close')}</span>
                             </button>
                         </div>
                     </div>

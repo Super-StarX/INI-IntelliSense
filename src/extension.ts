@@ -99,8 +99,8 @@ export async function activate(context: vscode.ExtensionContext) {
 	
 function updateMainStatus() {
 		if (isIndexing) {
-			mainStatusBar.text = `$(sync~spin) INI: Indexing...`;
-			mainStatusBar.tooltip = "正在索引工作区中的 INI 文件，部分功能可能暂时不可用。";
+			mainStatusBar.text = `$(sync~spin) INI: ${localize('statusbar.indexing', 'Indexing...')}`;
+			mainStatusBar.tooltip = localize('statusbar.indexing.tooltip', 'Indexing INI files in the workspace, some features may be temporarily unavailable.');
 			mainStatusBar.backgroundColor = undefined;
 			mainStatusBar.show();
 			return;
@@ -110,29 +110,33 @@ function updateMainStatus() {
 		const modPath = config.get<string>('validationFolderPath');
 
 		if (!modPath) {
-			mainStatusBar.text = `$(folder) INI: Set Project Root`;
-			mainStatusBar.tooltip = "Mod根目录未设置。点击进行配置以启用文件索引和诊断。";
+			mainStatusBar.text = `$(folder) INI: ${localize('statusbar.setProjectRoot', 'Set Project Root')}`;
+			mainStatusBar.tooltip = localize('statusbar.setProjectRoot.tooltip', 'Mod root directory is not set. Click to configure to enable file indexing and diagnostics.');
 			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 		} else if (!schemaManager.isSchemaLoaded()) {
 			const dictPath = config.get<string>('schemaFilePath');
-			mainStatusBar.text = `$(book) INI: Set Dictionary`;
+			mainStatusBar.text = `$(book) INI: ${localize('statusbar.setDictionary', 'Set Dictionary')}`;
 			mainStatusBar.tooltip = dictPath 
-				? `INI Dictionary 文件加载失败: ${dictPath}\n点击重新配置。`
-				: "INI Dictionary文件未设置。点击进行配置以启用智能感知。";
+				? localize('statusbar.setDictionary.tooltip.failed', 'Failed to load INI Dictionary file: {0}\nClick to reconfigure.', dictPath)
+				: localize('statusbar.setDictionary.tooltip.notSet', 'INI Dictionary file is not set. Click to configure to enable IntelliSense.');
 			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 		} else if (iniValidator.status === 'invalid') {
 			mainStatusBar.text = `$(error) INI Validator`;
-			mainStatusBar.tooltip = `INI Validator配置错误: ${iniValidator.statusDetails}\n点击进行管理。`;
+			mainStatusBar.tooltip = localize('statusbar.validator.invalid.tooltip', 'INI Validator configuration error: {0}\nClick to manage.', iniValidator.statusDetails);
 			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 		} else {
-			mainStatusBar.text = `$(check) INI: Ready`;
+			mainStatusBar.text = `$(check) INI: ${localize('statusbar.ready', 'Ready')}`;
 			const dictPath = config.get<string>('schemaFilePath')!;
-			let tooltip = `INI IntelliSense 已就绪\n- 项目: ${path.basename(modPath)}\n- 字典: ${path.basename(dictPath)}\n- 已索引文件: ${iniManager.files.size}`;
+			
+			let tooltip = localize('statusbar.ready.tooltip.base', 'INI IntelliSense is ready') +
+				`\n- ${localize('statusbar.ready.tooltip.project', 'Project')}: ${path.basename(modPath)}` +
+				`\n- ${localize('statusbar.ready.tooltip.dictionary', 'Dictionary')}: ${path.basename(dictPath)}` +
+				`\n- ${localize('statusbar.ready.tooltip.indexed', 'Indexed Files')}: ${iniManager.files.size}`;
 			
 			if(iniValidator.status === 'ready') {
-				tooltip += `\n- 校验器: 准备就绪`;
+				tooltip += `\n- ${localize('statusbar.ready.tooltip.validator', 'Validator')}: ${localize('statusbar.ready.tooltip.validator.ready', 'Ready')}`;
 			} else {
-				tooltip += `\n- 校验器: 未配置`;
+				tooltip += `\n- ${localize('statusbar.ready.tooltip.validator', 'Validator')}: ${localize('statusbar.ready.tooltip.validator.notConfigured', 'Not Configured')}`;
 			}
 			mainStatusBar.tooltip = tooltip;
 			mainStatusBar.backgroundColor = undefined;
