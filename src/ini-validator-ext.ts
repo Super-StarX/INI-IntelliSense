@@ -50,7 +50,7 @@ export class INIValidatorExt {
         }));
 
         await this.validatePath();
-        this.promptIfUnconfigured();
+        // this.promptIfUnconfigured();
     }
 
     /**
@@ -64,7 +64,7 @@ export class INIValidatorExt {
         };
         const fileUri = await vscode.window.showOpenDialog(options);
         if (fileUri && fileUri[0]) {
-            await vscode.workspace.getConfiguration().update(CONFIG_KEY_EXE_PATH, fileUri[0].fsPath, vscode.ConfigurationTarget.Global);
+            await vscode.workspace.getConfiguration().update(CONFIG_KEY_EXE_PATH, fileUri[0].fsPath, vscode.ConfigurationTarget.Workspace);
             vscode.window.showInformationMessage(localize('validator.pathSet.success', 'INI Validator path has been set to: {0}', fileUri[0].fsPath));
         }
     }
@@ -81,7 +81,7 @@ export class INIValidatorExt {
         };
         const folderUri = await vscode.window.showOpenDialog(options);
         if (folderUri && folderUri[0]) {
-            await vscode.workspace.getConfiguration().update(CONFIG_KEY_FOLDER_PATH, folderUri[0].fsPath, vscode.ConfigurationTarget.Global);
+            await vscode.workspace.getConfiguration().update(CONFIG_KEY_FOLDER_PATH, folderUri[0].fsPath, vscode.ConfigurationTarget.Workspace);
             vscode.window.showInformationMessage(localize('validator.folderSet.success', 'Mod validation root folder has been set to: {0}', folderUri[0].fsPath));
         }
     }
@@ -119,7 +119,9 @@ export class INIValidatorExt {
             }
             files[key] = value;
         } else {
-            const [key] = selection.label.substring(1).split(']')[0];
+            const match = selection.label.match(/\[(.*?)\]/);
+            if (!match) return;
+            const key = match[1];
             const action = await vscode.window.showQuickPick([localize('validator.manageFiles.action.edit', 'Edit Value'), localize('validator.manageFiles.action.delete', 'Delete Entry')], { placeHolder: localize('validator.manageFiles.action.placeholder', 'Action for "{0}"', selection.label) });
             if (!action) {
                 return;
@@ -134,7 +136,7 @@ export class INIValidatorExt {
                 delete files[key];
             }
         }
-        await config.update('validationFiles', files, vscode.ConfigurationTarget.Global);
+        await config.update('validationFiles', files, vscode.ConfigurationTarget.Workspace);
         vscode.window.showInformationMessage(localize('validator.fileListUpdated', 'Validation file list has been updated.'));
     }
 
@@ -146,12 +148,35 @@ export class INIValidatorExt {
         const notSetDescription = localize('validator.quickPick.notSet', 'Not currently set');
         const items: vscode.QuickPickItem[] = [];
         
-        items.push({ label: localize('validator.quickPick.setPath.label', '$(file-code) Set INI Validator Path...'), description: this.exePath || notSetDescription });
-        items.push({ label: localize('validator.quickPick.setFolder.label', '$(folder) Set Mod Root Folder...'), description: config.get('validationFolderPath') || notSetDescription });
-        items.push({ label: localize('validator.quickPick.editList.label', '$(list-selection) Edit Validation File List...'), description: localize('validator.quickPick.editList.description', 'Interactively manage the files to be validated') });
-        items.push({ label: localize('validator.quickPick.run.label', '$(play) Run Validation Manually'), description: localize('validator.quickPick.run.description', 'Generate Settings.ini and run validation immediately') });
-        items.push({ label: localize('validator.quickPick.download.label', '$(cloud-download) Go to Download INI Validator'), description: localize('validator.quickPick.download.description', 'Open the download page in your browser') });
-        items.push({ label: localize('validator.quickPick.openSettings.label', '$(settings) Open Extension Settings (JSON)'), description: localize('validator.quickPick.openSettings.description', 'For advanced configuration') });
+        const exePath = config.get<string>('exePath');
+        const folderPath = config.get<string>('validationFolderPath');
+        const files = config.get<object>('validationFiles', {});
+        const fileCount = Object.keys(files).length;
+
+        items.push({ 
+            label: localize('validator.quickPick.setPath.label', '$(file-code) Set INI Validator Path...'), 
+            description: exePath ? path.basename(exePath) : notSetDescription 
+        });
+        items.push({ 
+            label: localize('validator.quickPick.setFolder.label', '$(folder) Set Mod Root Folder...'), 
+            description: folderPath ? path.basename(folderPath) : notSetDescription 
+        });
+        items.push({ 
+            label: localize('validator.quickPick.editList.label', '$(list-selection) Edit Validation File List...'), 
+            description: localize('validator.quickPick.filesConfigured', '{0} files configured', fileCount) 
+        });
+        items.push({ 
+            label: localize('validator.quickPick.run.label', '$(play) Run Validation Manually'), 
+            description: localize('validator.quickPick.run.description', 'Generate Settings.ini and run validation immediately') 
+        });
+        items.push({ 
+            label: localize('validator.quickPick.download.label', '$(cloud-download) Go to Download INI Validator'), 
+            description: localize('validator.quickPick.download.description', 'Open the download page in your browser') 
+        });
+        items.push({ 
+            label: localize('validator.quickPick.openSettings.label', '$(settings) Open Extension Settings (JSON)'), 
+            description: localize('validator.quickPick.openSettings.description', 'For advanced configuration') 
+        });
 
         const selection = await vscode.window.showQuickPick(items, { placeHolder: localize('validator.quickPick.placeholder', 'Manage INI Validator Integration') });
         if (!selection) {
@@ -224,7 +249,7 @@ export class INIValidatorExt {
             } else if (selection === downloadAction) {
                 vscode.env.openExternal(vscode.Uri.parse(DOWNLOAD_URL));
             } else if (selection === dontAskAction) {
-                await config.update('dontAskToConfigureValidator', true, vscode.ConfigurationTarget.Global);
+                await config.update('dontAskToConfigureValidator', true, vscode.ConfigurationTarget.Workspace);
             }
         }
     }

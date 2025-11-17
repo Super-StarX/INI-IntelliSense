@@ -18,6 +18,7 @@
     "configuration.properties.indexing.includePatterns.description": "An array of Glob patterns specifying which INI files should be indexed by the extension. Only files matching at least one pattern in this list will be processed. Example: ['maps/**/*.ini'] to index all ini files under maps subdirectories.",
     "configuration.properties.indexing.excludePatterns.description": "An array of Glob patterns to exclude specific files or directories from the included files. Example: ['**/*_backup.ini'].",
     "configuration.properties.dontAskToConfigureValidator.description": "If true, the extension will not ask you to configure INI Validator on startup.",
+    "configuration.properties.dontAskToConfigureProject.description": "If true, the extension will not ask you to configure the Mod project root directory on startup.",
     "configuration.properties.schemaFilePath.description": "Absolute path to the INI Dictionary file (INIDictionary.ini). If not set, rule-based IntelliSense and diagnostics will be disabled.",
     "configuration.properties.codeLens.enabled.description": "Whether to show CodeLens above sections to display their reference counts.",
     "configuration.properties.decorations.overrideIndicator.enabled.description": "Enable or disable the inheritance override indicator (icon next to the line number and italic key name).",

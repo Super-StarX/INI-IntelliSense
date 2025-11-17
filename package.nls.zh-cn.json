@@ -18,6 +18,7 @@
     "configuration.properties.indexing.includePatterns.description": "一个Glob模式数组，用于指定哪些INI文件应该被插件索引。只有匹配此列表中至少一个模式的文件才会被处理。示例: ['maps/**/*.ini'] 用于索引所有maps子目录下的ini文件。",
     "configuration.properties.indexing.excludePatterns.description": "一个Glob模式数组，用于从已包含的文件中排除特定的文件或目录。例如: ['**/*_backup.ini']。",
     "configuration.properties.dontAskToConfigureValidator.description": "如果为 true, 插件将不会在启动时询问您配置 INI Validator。",
+    "configuration.properties.dontAskToConfigureProject.description": "如果为 true, 插件将不会在启动时询问您配置 Mod 项目根目录。",
     "configuration.properties.schemaFilePath.description": "INI Dictionary 文件 (INIDictionary.ini) 的绝对路径。如果未设置，将禁用基于规则的智能提示和诊断功能。",
     "configuration.properties.codeLens.enabled.description": "是否在节 (Section) 上方显示代码透镜 (CodeLens), 以展示其被引用的次数。",
     "configuration.properties.decorations.overrideIndicator.enabled.description": "启用或禁用继承覆盖指示器 (在行号旁边的图标和斜体键名)。",

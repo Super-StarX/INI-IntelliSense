@@ -30,6 +30,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	const schemaManager = new SchemaManager();
 	iniManager.setSchemaManager(schemaManager);
 	const diagnosticEngine = new DiagnosticEngine();
+	let isIndexing = false; // 标志位，用于跟踪是否正在进行索引
 
 	const selector = { language: LANGUAGE_ID };
 
@@ -47,7 +48,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	diagnostics = vscode.languages.createDiagnosticCollection('ini');
 	const iniValidator = new INIValidatorExt(diagnostics);
-	await iniValidator.initialize(context);
+	// 不要 await 初始化，让它在后台运行
+	iniValidator.initialize(context);
 	// 监听校验器状态变化，以更新统一状态栏
 	context.subscriptions.push(iniValidator.onDidChangeStatus(() => updateMainStatus()));
 
@@ -57,61 +59,80 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.refreshOutline', () => outlineProvider.refresh()));
 
 	async function indexWorkspaceFiles() {
-		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
-		const includePatterns = config.get<string[]>('indexing.includePatterns', []);
-		const excludePatterns = config.get<string[]>('indexing.excludePatterns', []);
-		const validationFolderPath = config.get<string | null>('validationFolderPath');
+		if (isIndexing) { return; } // 防止重复索引
+		isIndexing = true;
+		updateMainStatus(); // 更新状态栏为“正在索引”
 
-		let searchRoot: vscode.WorkspaceFolder | vscode.Uri | undefined;
-		if (validationFolderPath) {
-			searchRoot = vscode.Uri.file(validationFolderPath);
-		} else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-			searchRoot = vscode.workspace.workspaceFolders[0];
-		}
+		try {
+			const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
+			const includePatterns = config.get<string[]>('indexing.includePatterns', []);
+			const excludePatterns = config.get<string[]>('indexing.excludePatterns', []);
+			const validationFolderPath = config.get<string | null>('validationFolderPath');
 
-		if (!searchRoot || includePatterns.length === 0) {
-			console.log('INI IntelliSense: 未配置搜索路径或包含模式，跳过文件索引。');
-			await iniManager.indexFiles([]);
+			let searchRoot: vscode.WorkspaceFolder | vscode.Uri | undefined;
+			if (validationFolderPath) {
+				searchRoot = vscode.Uri.file(validationFolderPath);
+			} else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+				searchRoot = vscode.workspace.workspaceFolders[0];
+			}
+
+			if (!searchRoot || includePatterns.length === 0) {
+				console.log('INI IntelliSense: 未配置搜索路径或包含模式，跳过文件索引。');
+				await iniManager.indexFiles([]);
+				outlineProvider.refresh();
+				return;
+			}
+
+			const includePattern = new vscode.RelativePattern(searchRoot, `{${includePatterns.join(',')}}`);
+			const excludePattern = excludePatterns.length > 0 ? new vscode.RelativePattern(searchRoot, `{${excludePatterns.join(',')}}`) : null;
+			
+			const iniFiles = await vscode.workspace.findFiles(includePattern, excludePattern);
+			await iniManager.indexFiles(iniFiles);
+			const indexedFiles = Array.from(iniManager.files.keys()).map(p => path.basename(p));
+			console.log(`INI IntelliSense: 已索引 ${iniManager.files.size} 个INI文件: [${indexedFiles.join(', ')}]`);
 			outlineProvider.refresh();
-			updateMainStatus();
+		} finally {
+			isIndexing = false;
+			updateMainStatus(); // 索引完成，恢复正常状态
+		}
+	}
+	
+function updateMainStatus() {
+		if (isIndexing) {
+			mainStatusBar.text = `$(sync~spin) INI: Indexing...`;
+			mainStatusBar.tooltip = "正在索引工作区中的 INI 文件，部分功能可能暂时不可用。";
+			mainStatusBar.backgroundColor = undefined;
+			mainStatusBar.show();
 			return;
 		}
 
-		const includePattern = new vscode.RelativePattern(searchRoot, `{${includePatterns.join(',')}}`);
-		const excludePattern = excludePatterns.length > 0 ? new vscode.RelativePattern(searchRoot, `{${excludePatterns.join(',')}}`) : null;
-		
-		const iniFiles = await vscode.workspace.findFiles(includePattern, excludePattern);
-		await iniManager.indexFiles(iniFiles);
-		const indexedFiles = Array.from(iniManager.files.keys()).map(p => path.basename(p));
-		console.log(`INI IntelliSense: 已索引 ${iniManager.files.size} 个INI文件: [${indexedFiles.join(', ')}]`);
-		outlineProvider.refresh();
-		updateMainStatus();
-	}
-	
-	function updateMainStatus() {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
 		const modPath = config.get<string>('validationFolderPath');
-		const dictPath = config.get<string>('schemaFilePath');
 
 		if (!modPath) {
 			mainStatusBar.text = `$(folder) INI: Set Project Root`;
-			mainStatusBar.tooltip = "Mod根目录未设置。点击进行配置。";
+			mainStatusBar.tooltip = "Mod根目录未设置。点击进行配置以启用文件索引和诊断。";
 			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-		} else if (!dictPath) {
+		} else if (!schemaManager.isSchemaLoaded()) {
+			const dictPath = config.get<string>('schemaFilePath');
 			mainStatusBar.text = `$(book) INI: Set Dictionary`;
-			mainStatusBar.tooltip = "INI Dictionary文件未设置。点击进行配置。";
+			mainStatusBar.tooltip = dictPath 
+				? `INI Dictionary 文件加载失败: ${dictPath}\n点击重新配置。`
+				: "INI Dictionary文件未设置。点击进行配置以启用智能感知。";
 			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 		} else if (iniValidator.status === 'invalid') {
 			mainStatusBar.text = `$(error) INI Validator`;
-			mainStatusBar.tooltip = `INI Validator配置错误: ${iniValidator.statusDetails}`;
+			mainStatusBar.tooltip = `INI Validator配置错误: ${iniValidator.statusDetails}\n点击进行管理。`;
 			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 		} else {
-			mainStatusBar.text = `$(check) INI IntelliSense`;
-			let tooltip = `INI IntelliSense: Ready\n- Project: ${path.basename(modPath)}\n- Dictionary: ${path.basename(dictPath)}`;
+			mainStatusBar.text = `$(check) INI: Ready`;
+			const dictPath = config.get<string>('schemaFilePath')!;
+			let tooltip = `INI IntelliSense 已就绪\n- 项目: ${path.basename(modPath)}\n- 字典: ${path.basename(dictPath)}\n- 已索引文件: ${iniManager.files.size}`;
+			
 			if(iniValidator.status === 'ready') {
-				tooltip += `\n- Validator: Ready`;
+				tooltip += `\n- 校验器: 准备就绪`;
 			} else {
-				tooltip += `\n- Validator: Not Configured`;
+				tooltip += `\n- 校验器: 未配置`;
 			}
 			mainStatusBar.tooltip = tooltip;
 			mainStatusBar.backgroundColor = undefined;
@@ -137,7 +158,8 @@ export async function activate(context: vscode.ExtensionContext) {
 			schemaManager.clearSchema();
 		}
 		
-		await indexWorkspaceFiles(); // 索引依赖于schema，所以放在这里
+		// 索引依赖于schema，所以放在这里。注意：这里不 await
+		indexWorkspaceFiles();
 	}
 	
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.configureSchemaPath', async () => {
@@ -170,11 +192,40 @@ export async function activate(context: vscode.ExtensionContext) {
 	}));
 
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.showMainQuickPick', async () => {
+		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
+        const notSetDescription = localize('mainMenu.description.notSet', 'Click to set');
+
+        const modPath = config.get<string>('validationFolderPath');
+        const dictPath = config.get<string>('schemaFilePath');
+
+        const modPathDesc = modPath 
+            ? localize('mainMenu.description.modPath', 'Current: {0}', path.basename(modPath)) 
+            : notSetDescription;
+        const dictPathDesc = dictPath
+            ? localize('mainMenu.description.dictPath', 'Current: {0}', path.basename(dictPath))
+            : notSetDescription;
+
+        let validatorStatusText: string;
+        switch(iniValidator.status) {
+            case 'ready': 
+                validatorStatusText = localize('validator.status.ready.short', 'Ready'); 
+                break;
+            case 'invalid': 
+                validatorStatusText = localize('validator.status.invalid.short', 'Invalid Path'); 
+                break;
+            case 'unconfigured':
+            default: 
+                validatorStatusText = localize('validator.status.unconfigured.short', 'Not Configured'); 
+                break;
+        }
+        const validatorDesc = localize('mainMenu.description.validatorStatus', 'Status: {0}', validatorStatusText);
+
+
 		const items: vscode.QuickPickItem[] = [
 			{ label: "$(rocket) 显示设置向导", description: "重新打开首次配置页面" },
-			{ label: "$(folder) 设置Mod根目录...", description: "更改当前工作区的文件索引根目录" },
-			{ label: "$(book) 设置INI Dictionary文件...", description: "更改用于智能提示的规则文件" },
-			{ label: "$(bug) 管理INI Validator...", description: "配置外部校验工具" },
+			{ label: "$(folder) 设置Mod根目录...", description: modPathDesc },
+			{ label: "$(book) 设置INI Dictionary文件...", description: dictPathDesc },
+			{ label: "$(bug) 管理INI Validator...", description: validatorDesc },
 			{ label: "$(refresh) 重新索引工作区", description: "手动强制刷新所有文件的索引" },
 			{ label: "$(json) 打开插件设置 (JSON)", description: "查看所有高级配置" },
 		];
@@ -194,6 +245,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		} else if (selection.label.includes("INI Validator")) {
 			iniValidator.showQuickPick();
 		} else if (selection.label.includes("重新索引")) {
+			// 这里使用 await 以便用户能感知到操作已完成
 			await indexWorkspaceFiles();
 			vscode.window.showInformationMessage("工作区已重新索引。");
 		} else if (selection.label.includes("插件设置")) {
@@ -213,8 +265,12 @@ export async function activate(context: vscode.ExtensionContext) {
 		editor.revealRange(new vscode.Range(targetPosition, targetPosition), vscode.TextEditorRevealType.InCenter);
 	}));
 
-	await loadSchemaFromConfiguration();
-	overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
+	// 立即更新一次UI状态，显示初始状态
+	updateMainStatus();
+	// 开始加载Schema和索引文件，但不阻塞激活流程
+	loadSchemaFromConfiguration().then(() => {
+		overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
+	});
 
 	let codeLensProvider: vscode.Disposable | undefined;
 	function updateCodeLensProvider() {
@@ -223,6 +279,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			if (!codeLensProvider) {
 				codeLensProvider = vscode.languages.registerCodeLensProvider(selector, {
 					provideCodeLenses(document, token) {
+						if (isIndexing) { return []; } // 索引期间不提供 CodeLens
 						const codeLenses: vscode.CodeLens[] = [];
 						for (let i = 0; i < document.lineCount; i++) {
 							const line = document.lineAt(i);
@@ -269,18 +326,19 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
 		if (e.affectsConfiguration('ra2-ini-intellisense')) {
-			await loadSchemaFromConfiguration();
-			updateMainStatus();
-
-			if (e.affectsConfiguration('ra2-ini-intellisense.codeLens.enabled')) {
-				updateCodeLensProvider();
-			}
-			if (e.affectsConfiguration('ra2-ini-intellisense.decorations')) {
-				overrideDecorator.reload();
-			}
-			
-			vscode.workspace.textDocuments.forEach(doc => triggerUpdateDiagnostics(doc));
-			overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
+			// 配置变更后，重新加载 schema 并触发重新索引
+			loadSchemaFromConfiguration().then(() => {
+				updateMainStatus();
+				if (e.affectsConfiguration('ra2-ini-intellisense.codeLens.enabled')) {
+					updateCodeLensProvider();
+				}
+				if (e.affectsConfiguration('ra2-ini-intellisense.decorations')) {
+					overrideDecorator.reload();
+				}
+				
+				vscode.workspace.textDocuments.forEach(doc => triggerUpdateDiagnostics(doc));
+				overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
+			});
 		}
 	}));
 	updateCodeLensProvider();
@@ -384,6 +442,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	const diagnosticDebounceTimers = new Map<string, NodeJS.Timeout>();
 
 	const triggerUpdateDiagnostics = (document: vscode.TextDocument) => {
+		if (isIndexing) { return; } // 索引期间不进行诊断
 		const documentUriString = document.uri.toString();
 		if (diagnosticDebounceTimers.has(documentUriString)) {
 			clearTimeout(diagnosticDebounceTimers.get(documentUriString)!);
@@ -427,25 +486,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
     vscode.workspace.onDidOpenTextDocument(document => {
 		if (document.languageId === LANGUAGE_ID) {
-			const hasShownWelcome = context.workspaceState.get<boolean>('ini.welcome.shown');
-			if (!hasShownWelcome) {
-				const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
-				const modPath = config.get<string>('validationFolderPath');
-				if (!modPath) {
-					vscode.window.showInformationMessage(
-						"欢迎使用 INI IntelliSense！为了获得最佳体验，需要进行一些快速配置。",
-						"开始设置", "稍后"
-					).then(selection => {
-						if (selection === "开始设置") {
-							vscode.commands.executeCommand('ra2-ini-intellisense.showWelcomePage');
-							context.workspaceState.update('ini.welcome.shown', true);
-						}
-					});
-				} else {
-					context.workspaceState.update('ini.welcome.shown', true);
-				}
-			}
-
 			iniManager.updateFile(document.uri, document.getText()).then(() => {
 				triggerUpdateDiagnostics(document);
 			});
@@ -464,6 +504,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.languages.registerDefinitionProvider(selector, {
 			async provideDefinition(document, position, token) {
+				if (isIndexing) { return []; }
 				const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
 				if (!wordRange) {
 					return [];
@@ -485,6 +526,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 		vscode.languages.registerHoverProvider(selector, {
 			provideHover(document, position, token) {
+				if (isIndexing) { return null; }
 				const line = document.lineAt(position.line);
 				const lineText = line.text;
 				const equalsIndex = lineText.indexOf('=');
@@ -581,6 +623,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 		vscode.languages.registerCompletionItemProvider(selector, {
 			async provideCompletionItems(document, position, token, context) {
+				if (isIndexing) { return new vscode.CompletionList([], true); }
 				const line = document.lineAt(position.line);
 				const equalsIndex = line.text.indexOf('=');
 				const isKeyCompletion = equalsIndex === -1 || position.character <= equalsIndex;
@@ -669,6 +712,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 		vscode.languages.registerColorProvider(selector, {
 			provideDocumentColors(document, token) {
+				if (isIndexing) { return []; }
 				const colors: vscode.ColorInformation[] = [];
 				for (let i = 0; i < document.lineCount; i++) {
 					const line = document.lineAt(i);
@@ -725,6 +769,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 		vscode.languages.registerReferenceProvider(selector, {
 			provideReferences(document, position, context, token) {
+				if (isIndexing) { return []; }
 				const line = document.lineAt(position.line);
 				const sectionMatch = line.text.match(/^\s*\[([^\]:]+)\]/);
 				if (sectionMatch) {
@@ -769,6 +814,40 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		}),
 	);
+
+	// =================================================================
+	// 新增：在扩展激活后，检查并提示进行初始配置
+	// =================================================================
+	async function promptForInitialSetup() {
+		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
+		const modPath = config.get<string>('validationFolderPath');
+		const dontAsk = config.get<boolean>('dontAskToConfigureProject');
+
+		if (!modPath && !dontAsk) {
+			const configureAction = localize('prompt.configureII.action.configure', 'Set Directory...');
+			const welcomeAction = localize('prompt.configureII.action.welcome', 'Open Setup Guide');
+			const dontAskAction = localize('prompt.configureII.action.dontAsk', "Don't Ask Again");
+
+			const selection = await vscode.window.showInformationMessage(
+				localize('prompt.configureII.message', 'Welcome to INI IntelliSense! Please set your Mod project root directory to enable all features.'),
+				configureAction,
+				welcomeAction,
+				dontAskAction
+			);
+
+			if (selection === configureAction) {
+				await configureModPath();
+			} else if (selection === welcomeAction) {
+				vscode.commands.executeCommand('ra2-ini-intellisense.showWelcomePage');
+			} else if (selection === dontAskAction) {
+				await config.update('dontAskToConfigureProject', true, vscode.ConfigurationTarget.Workspace);
+			}
+		}
+	}
+
+	// 在激活流程的最后调用这个函数
+	promptForInitialSetup();
+
 }
 
 /**

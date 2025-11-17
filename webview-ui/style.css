@@ -4,6 +4,10 @@
 :root {
     --vscode-foreground: #cccccc;
     --vscode-editor-background: #1e1e1e;
+    --vscode-input-background: #3c3c3c;
+    --vscode-input-foreground: #cccccc;
+    --vscode-input-border: #3c3c3c;
+    --vscode-focusBorder: #007fd4;
     --background-color: #16181d;
     --primary-color: #00aaff;
     --primary-color-glow: rgba(0, 170, 255, 0.3);
@@ -172,10 +176,7 @@ body {
     gap: 1rem;
     margin-bottom: 0.75rem;
 }
-.step-icon {
-    font-size: 1.5rem;
-    color: var(--primary-color);
-}
+
 .step-title {
     font-size: 1.1rem;
     font-weight: 500;
@@ -191,6 +192,7 @@ body {
     display: flex;
     gap: 1rem;
     align-items: center;
+    margin-top: 1rem;
 }
 
 button {
@@ -240,51 +242,30 @@ button:focus {
     100% { left: 150%; }
 }
 
-
-.result {
-    margin-top: 1rem;
-    font-size: 0.85rem;
-    color: var(--text-color-secondary);
-    word-break: break-all;
-    opacity: 0;
-    transition: opacity 0.3s ease;
+.input-container {
+    margin-top: 0.5rem;
 }
 
-/* Step States */
-.step-module.loading .actions { display: none; }
-.step-module.loading .result { opacity: 1; color: var(--primary-color); }
-
-.step-module.done .actions { display: none; }
-.step-module.done .result { opacity: 1; color: var(--success-color); }
-.step-module.done { border-left: 3px solid var(--success-color); }
-.step-module.done .step-header { margin-bottom: 0; }
-.step-module.done .step-description { display: none; }
-
-.redo-btn {
-    margin-left: auto;
-    background: none;
-    border: none;
-    color: var(--text-color-secondary);
-    cursor: pointer;
-    font-size: 0.8rem;
-    padding: 0.2rem 0.5rem;
-    display: none;
-}
-.redo-btn:hover {
-    color: var(--primary-color);
-    background: var(--secondary-color);
+.config-input, .config-textarea {
+    width: 100%;
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 3px;
+    padding: 8px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s ease;
 }
 
-.step-module.pending .actions { display: flex; }
-.step-module.pending .result { display: none; }
+.config-input:focus, .config-textarea:focus {
+    border-color: var(--vscode-focusBorder);
+}
 
-pre {
-    background: rgba(0,0,0,0.3);
-    padding: 0.75rem;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    margin-bottom: 1.25rem;
-    border: 1px solid var(--border-color);
+.config-textarea {
+    resize: vertical;
+    min-height: 60px;
 }
 
 /* Finish Button */

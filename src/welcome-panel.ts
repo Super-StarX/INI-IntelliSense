@@ -41,6 +41,7 @@ export class WelcomePanel {
         this._context = context;
 
         this._update();
+        this.sendInitialConfig();
 
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
@@ -68,7 +69,34 @@ export class WelcomePanel {
             case 'closeWelcome':
                 this._panel.dispose();
                 return;
+            case 'updateConfig': {
+                const { key, value } = message;
+                let valueToUpdate: any = value;
+                if (key === 'indexing.includePatterns') {
+                    valueToUpdate = value.split('\n').map((s: string) => s.trim()).filter((s: string) => s);
+                }
+                await vscode.workspace.getConfiguration('ra2-ini-intellisense').update(key, valueToUpdate, vscode.ConfigurationTarget.Workspace);
+                return;
+            }
         }
+    }
+    
+    private sendInitialConfig() {
+        const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
+        const modPath = config.get<string>('validationFolderPath');
+        const dictPath = config.get<string>('schemaFilePath');
+        const includePatterns = config.get<string[]>('indexing.includePatterns');
+        const defaultIncludePatterns = config.inspect<string[]>('indexing.includePatterns')?.defaultValue;
+
+        this._panel.webview.postMessage({
+            command: 'initialConfig',
+            config: {
+                modPath: modPath || '',
+                dictPath: dictPath || '',
+                includePatterns: includePatterns ? includePatterns.join('\n') : '',
+                defaultIncludePatterns: defaultIncludePatterns ? defaultIncludePatterns.join('\n') : ''
+            }
+        });
     }
 
     private async selectModPath(useWorkspaceFolder: boolean) {
@@ -95,7 +123,6 @@ export class WelcomePanel {
         }
 
         if (folderPath) {
-            await vscode.workspace.getConfiguration('ra2-ini-intellisense').update('validationFolderPath', folderPath, vscode.ConfigurationTarget.Workspace);
             this._panel.webview.postMessage({ command: 'pathSelected', path: folderPath });
         } else {
             this._panel.webview.postMessage({ command: 'pathSelectionFailed' });
@@ -118,8 +145,6 @@ export class WelcomePanel {
             
             const content = await this.httpsGet(url);
             await vscode.workspace.fs.writeFile(targetPath, Buffer.from(content));
-
-            await vscode.workspace.getConfiguration('ra2-ini-intellisense').update('schemaFilePath', targetPath.fsPath, vscode.ConfigurationTarget.Workspace);
             
             this._panel.webview.postMessage({ command: 'downloadFinished', path: targetPath.fsPath });
             vscode.window.showInformationMessage(`INI Dictionary 已成功下载并配置到: ${targetPath.fsPath}`);
@@ -154,7 +179,6 @@ export class WelcomePanel {
         const fileUri = await vscode.window.showOpenDialog(options);
         if (fileUri && fileUri[0]) {
             const filePath = fileUri[0].fsPath;
-            await vscode.workspace.getConfiguration('ra2-ini-intellisense').update('schemaFilePath', filePath, vscode.ConfigurationTarget.Workspace);
             this._panel.webview.postMessage({ command: 'dictionarySelected', path: filePath });
         } else {
              this._panel.webview.postMessage({ command: 'dictionarySelectionFailed' });
@@ -182,8 +206,6 @@ export class WelcomePanel {
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'webview-ui', 'style.css'));
         
         const nonce = getNonce();
-        const currentConfig = vscode.workspace.getConfiguration('ra2-ini-intellisense');
-        const defaultIncludes = JSON.stringify(currentConfig.get('indexing.includePatterns'), null, 2);
 
         return `<!DOCTYPE html>
 			<html lang="en">
@@ -254,27 +276,30 @@ export class WelcomePanel {
                         <div class="steps-container">
                             <div id="step1" class="step-module animated" style="animation-delay: 0.6s;">
                                 <div class="step-header">
-                                    <h2 class="step-title">配置项目目录 (必需)</h2>
-                                    <button class="redo-btn" data-step="1">重置</button>
+                                    <h2 class="step-title">1. 配置项目目录 (必需)</h2>
                                 </div>
                                 <p class="step-description">设定您的Mod项目根目录。这是所有智能分析的起点。</p>
+                                <div class="input-container">
+                                    <input type="text" id="mod-path-input" class="config-input" placeholder="例如: C:\\Games\\RA2\\MyMod">
+                                </div>
                                 <div class="actions">
-                                    <button id="use-workspace-btn" class="button-primary">
+                                    <button id="use-workspace-btn">
                                         <span>📁</span> 使用当前工作区
                                     </button>
                                     <button id="browse-folder-btn">
                                         <span>🔍</span> 手动浏览...
                                     </button>
                                 </div>
-                                <p class="result"></p>
                             </div>
 
                             <div id="step2" class="step-module animated" style="animation-delay: 0.7s;">
                                 <div class="step-header">
-                                    <h2 class="step-title">配置INI字典</h2>
-                                     <button class="redo-btn" data-step="2">重置</button>
+                                    <h2 class="step-title">2. 配置INI字典</h2>
                                 </div>
                                 <p class="step-description">注入官方INI Dictionary，为代码补全与错误检查提供动力。</p>
+                                <div class="input-container">
+                                    <input type="text" id="dict-path-input" class="config-input" placeholder="例如: C:\\...\\INIDictionary.ini">
+                                </div>
                                 <div class="actions">
                                     <button id="download-dict-btn" class="button-primary">
                                        <span>☁️</span> 自动下载与配置
@@ -283,25 +308,21 @@ export class WelcomePanel {
                                         <span>📄</span> 使用本地字典...
                                     </button>
                                 </div>
-                                <p class="result"></p>
                             </div>
 
                             <div id="step3" class="step-module animated" style="animation-delay: 0.8s;">
                                 <div class="step-header">
-                                    <h2 class="step-title">配置检测白名单</h2>
-                                    <button class="redo-btn" data-step="3">重置</button>
+                                    <h2 class="step-title">3. 配置检测白名单 (可选)</h2>
                                 </div>
-                                <p class="step-description">定义插件需要关注的文件。当前默认规则如下：</p>
-                                <pre><code>${defaultIncludes}</code></pre>
+                                <p class="step-description">定义插件需要关注的文件。您可以编辑下面的规则（每行一个Glob模式）。</p>
+                                <div class="input-container">
+                                    <textarea id="indexing-patterns-input" class="config-textarea" rows="5"></textarea>
+                                </div>
                                 <div class="actions">
-                                    <button id="use-default-indexing-btn">
-                                        <span>👍</span> 接受默认
-                                    </button>
                                     <button id="customize-indexing-btn">
-                                        <span>⚙️</span> 我要自定义...
+                                        <span>⚙️</span> 在settings.json中编辑
                                     </button>
                                 </div>
-                                <p class="result"></p>
                             </div>
                         </div>
 

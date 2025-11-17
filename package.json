@@ -192,6 +192,11 @@
           "default": false,
           "description": "%configuration.properties.dontAskToConfigureValidator.description%"
         },
+        "ra2-ini-intellisense.dontAskToConfigureProject": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.properties.dontAskToConfigureProject.description%"
+        },
         "ra2-ini-intellisense.schemaFilePath": {
           "type": [
             "string",
