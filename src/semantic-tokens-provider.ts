@@ -65,7 +65,7 @@ export class IniSemanticTokensProvider implements vscode.DocumentSemanticTokensP
     ): Promise<vscode.SemanticTokens> {
         const builder = new vscode.SemanticTokensBuilder(legend);
         
-        // 核心优化：循环不再是整个文档，而是 VS Code 提供的、发生变更的范围
+        // 循环不再是整个文档，而是 VS Code 提供的、发生变更的范围
         for (let i = range.start.line; i <= range.end.line; i++) {
             if (token.isCancellationRequested) {
                 break;

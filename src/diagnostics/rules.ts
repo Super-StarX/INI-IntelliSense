@@ -1,3 +1,4 @@
+// src/diagnostics/rules.ts
 import * as vscode from 'vscode';
 import { IniDiagnostic } from './diagnostic';
 import { DiagnosticContext } from './engine';

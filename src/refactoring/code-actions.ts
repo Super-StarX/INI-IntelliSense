@@ -51,6 +51,11 @@ export class IniCodeActionProvider implements vscode.CodeActionProvider {
                 action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
                 edit.replace(document.uri, diagnostic.range, ' '.repeat(requiredSpaces));
                 break;
+            case ErrorCode.LOGIC_EMPTY_VALUE:
+                action = new vscode.CodeAction(localize('codeaction.fix.emptyValue', 'Remove empty key-value pair'), vscode.CodeActionKind.QuickFix);
+                const line = document.lineAt(diagnostic.range.start.line);
+                edit.delete(document.uri, line.rangeIncludingLineBreak);
+                break;
             default:
                 return undefined;
         }

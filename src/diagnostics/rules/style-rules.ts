@@ -26,6 +26,7 @@ const checkSpaceAroundEquals: ValidationRule = (context: RuleContext): IniDiagno
     const { codePart, lineNumber, config } = context;
     const diagnostics: IniDiagnostic[] = [];
 
+    // 检查等号前的空格，此项检查不受值是否为空的影响
     if (config.get<boolean>('spaceBeforeEquals', true)) {
         const equalsLeft = codePart.match(/(\s+)=/);
         if (equalsLeft) {
@@ -39,16 +40,28 @@ const checkSpaceAroundEquals: ValidationRule = (context: RuleContext): IniDiagno
         }
     }
 
+    // 检查等号后的空格
     if (config.get<boolean>('spaceAfterEquals', true)) {
-        const equalsRight = codePart.match(/=(\s+)/);
-        if (equalsRight) {
-            const start = codePart.indexOf(equalsRight[0]) + 1;
-            diagnostics.push(new IniDiagnostic(
-                new vscode.Range(lineNumber, start, lineNumber, start + equalsRight[1].length),
-                localize('diag.style.spaceAfterEquals', 'Avoid spaces after the "=" sign.'),
-                vscode.DiagnosticSeverity.Warning,
-                ErrorCode.STYLE_SPACE_AFTER_EQUALS
-            ));
+        const equalsIndex = codePart.indexOf('=');
+        if (equalsIndex !== -1) {
+            const valuePart = codePart.substring(equalsIndex + 1);
+
+            // 如果值部分在去除空格后为空，则不报告“等号后有空格”的风格问题。
+            // 这将优先权让给 LOGIC_EMPTY_VALUE 规则。
+            if (valuePart.trim() === '') {
+                return diagnostics; // 提前返回，不检查等号后的空格
+            }
+            
+            const equalsRight = valuePart.match(/^\s+/);
+            if (equalsRight) {
+                const start = equalsIndex + 1;
+                diagnostics.push(new IniDiagnostic(
+                    new vscode.Range(lineNumber, start, lineNumber, start + equalsRight[0].length),
+                    localize('diag.style.spaceAfterEquals', 'Avoid spaces after the "=" sign.'),
+                    vscode.DiagnosticSeverity.Warning,
+                    ErrorCode.STYLE_SPACE_AFTER_EQUALS
+                ));
+            }
         }
     }
 

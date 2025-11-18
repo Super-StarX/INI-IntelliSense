@@ -1,3 +1,4 @@
+// src/diagnostics/error-codes.ts
 /**
  * 定义所有诊断错误的唯一错误码。
  * 这种方法有助于对错误进行分类，并为将来的快速修复等功能提供稳定的标识符。
@@ -25,4 +26,5 @@ export enum ErrorCode {
     // Logic Errors (3xx)
     LOGIC_UNDEFINED_SECTION_REFERENCE = 'LOGIC-301',
     LOGIC_UNREGISTERED_SECTION = 'LOGIC-302',
+    LOGIC_EMPTY_VALUE = 'LOGIC-303',
 }

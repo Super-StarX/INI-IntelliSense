@@ -36,6 +36,28 @@ const checkUnregisteredSection: ValidationRule = (context: RuleContext): IniDiag
     */
 };
 
+const checkEmptyValue: ValidationRule = (context: RuleContext): IniDiagnostic[] => {
+    const { line, codePart } = context;
+
+    const kvMatch = codePart.match(/^\s*([^;=\s][^=]*?)\s*=(.*)/);
+    if (kvMatch) {
+        const key = kvMatch[1].trim();
+        const value = kvMatch[2].trim();
+
+        if (value === '') {
+            return [new IniDiagnostic(
+                line.range,
+                localize('diag.logic.emptyValue', "The key '{0}' has an empty value.", key),
+                vscode.DiagnosticSeverity.Warning,
+                ErrorCode.LOGIC_EMPTY_VALUE
+            )];
+        }
+    }
+    
+    return [];
+};
+
 export const logicRules: ValidationRule[] = [
-    checkUnregisteredSection
+    checkUnregisteredSection,
+    checkEmptyValue,
 ];
