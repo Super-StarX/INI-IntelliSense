@@ -210,7 +210,11 @@ export class INIManager {
 
                     const equalsIndex = value.indexOf('=');
                     if (equalsIndex !== -1) {
-                        value = value.substring(equalsIndex + 1).trim();
+                         // This handles lines like `0=ID` in registry lists
+                        const keyPart = value.substring(0, equalsIndex).trim();
+                        if (/^\d+$/.test(keyPart)) {
+                             value = value.substring(equalsIndex + 1).trim();
+                        }
                     }
                     
                     if (value) {
@@ -311,6 +315,45 @@ export class INIManager {
     findSectionLocations(name: string): vscode.Location[] {
         return this.sectionLocations.get(name) || [];
     }
+    
+    /**
+     * 在给定的文本内容中查找节定义的范围。
+     * @param content 文件内容
+     * @param sectionName 节名
+     * @returns 节的起始和结束位置，如果未找到则返回 null
+     */
+    findSectionRange(content: string, sectionName: string): vscode.Range | null {
+        const lines = content.split(/\r?\n/);
+        const escapedSectionName = sectionName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const sectionRegex = new RegExp(`^\\[${escapedSectionName}\\]`, 'i');
+        const nextSectionRegex = /^\s*\[.+\]/;
+
+        let startLine = -1;
+        for (let i = 0; i < lines.length; i++) {
+            if (sectionRegex.test(lines[i].trim())) {
+                startLine = i;
+                break;
+            }
+        }
+        
+        if (startLine === -1) {
+            return null;
+        }
+        
+        let endLine = lines.length;
+        for (let i = startLine + 1; i < lines.length; i++) {
+            if (nextSectionRegex.test(lines[i].trim())) {
+                endLine = i;
+                break;
+            }
+        }
+        
+        // 结束位置应为下一节的开始，或文件的末尾
+        const startPos = new vscode.Position(startLine, 0);
+        const endPos = new vscode.Position(endLine -1, lines[endLine - 1].length);
+        
+        return new vscode.Range(startPos, endPos);
+    }
 
     /**
      * 在给定的文本内容中查找节定义的行号。
@@ -337,7 +380,7 @@ export class INIManager {
      * @param keyName 要查找的键名
      * @returns 包含位置和行文本的对象，如果未找到则返回 null
      */
-    public findKeyLocation(sectionName: string, keyName: string): { location: vscode.Location; lineText: string } | null {
+    public findKeyLocation(sectionName: string, keyName: string, sectionData?: any): { location: vscode.Location; lineText: string } | null {
         const sectionInfos = this.findSection(sectionName);
         if (sectionInfos.length === 0) {
             return null;
@@ -472,7 +515,7 @@ export class INIManager {
      * @param lineNumber 行号
      * @returns 节名，如果未找到则返回 null
      */
-    private getSectionNameAtLine(filePath: string, lineNumber: number): string | null {
+    public getSectionNameAtLine(filePath: string, lineNumber: number): string | null {
         const fileData = this.files.get(filePath);
         if (!fileData) {return null;}
         
@@ -494,6 +537,20 @@ export class INIManager {
      */
     public findRegistryForSection(sectionName: string): string | undefined {
         return this.sectionToRegistryMap.get(sectionName);
+    }
+
+    /**
+     * 获取指定节的解析数据。
+     * @param sectionName 节名
+     * @returns 该节下的键值对对象, 或 undefined
+     */
+    public getSectionData(sectionName: string): { [key: string]: any } | undefined {
+        for (const file of this.files.values()) {
+            if (file.parsed[sectionName]) {
+                return file.parsed[sectionName];
+            }
+        }
+        return undefined;
     }
 
     /**

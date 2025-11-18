@@ -11,9 +11,6 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onLanguage:ra2-ini"
-  ],
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [
@@ -95,6 +92,18 @@
           "when": "view == ini-outline",
           "group": "navigation"
         }
+      ],
+      "editor/context": [
+        {
+          "when": "editorTextFocus && editorLangId == 'ra2-ini'",
+          "command": "ra2-ini-intellisense.registerSectionContext",
+          "group": "1_modification"
+        },
+        {
+          "when": "editorTextFocus && editorLangId == 'ra2-ini'",
+          "command": "ra2-ini-intellisense.refactor.extractSuperclass",
+          "group": "2_refactor"
+        }
       ]
     },
     "commands": [
@@ -132,6 +141,16 @@
         "command": "ra2-ini-intellisense.showMainQuickPick",
         "title": "%command.showMainQuickPick.title%",
         "category": "%command.category%"
+      },
+      {
+        "command": "ra2-ini-intellisense.registerSectionContext",
+        "title": "%command.registerSectionContext.title%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "ra2-ini-intellisense.refactor.extractSuperclass",
+        "title": "%command.extractSuperclass.title%",
+        "category": "%command.category%.refactor"
       }
     ],
     "configuration": {

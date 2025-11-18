@@ -11,6 +11,10 @@ import { IniDiagnostic } from './diagnostics/diagnostic';
 import { OverrideDecorator } from './override-decorator';
 import { WelcomePanel } from './welcome-panel';
 import { localize, initializeNls } from './i18n';
+import { IniRenameProvider } from './refactoring/rename-provider';
+import { IniCodeActionProvider, registerCodeActionCommands } from './refactoring/code-actions';
+import { registerRegisterIdCommand } from './refactoring/register-id';
+import { registerExtractSuperclassCommand } from './refactoring/extract-superclass';
 
 let diagnostics: vscode.DiagnosticCollection;
 const LANGUAGE_ID = 'ra2-ini';
@@ -97,7 +101,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 	}
 	
-function updateMainStatus() {
+	function updateMainStatus() {
 		if (isIndexing) {
 			mainStatusBar.text = `$(sync~spin) INI: ${localize('statusbar.indexing', 'Indexing...')}`;
 			mainStatusBar.tooltip = localize('statusbar.indexing.tooltip', 'Indexing INI files in the workspace, some features may be temporarily unavailable.');
@@ -194,6 +198,10 @@ function updateMainStatus() {
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.showWelcomePage', () => {
 		WelcomePanel.createOrShow(context);
 	}));
+	
+	// 注册重构命令
+	registerExtractSuperclassCommand(iniManager);
+	registerRegisterIdCommand(iniManager, schemaManager);
 
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.showMainQuickPick', async () => {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
@@ -504,6 +512,14 @@ function updateMainStatus() {
 			triggerUpdateDiagnostics(doc);
 		}
 	});
+
+	context.subscriptions.push(
+		vscode.languages.registerRenameProvider(selector, new IniRenameProvider(iniManager)),
+		vscode.languages.registerCodeActionsProvider(selector, new IniCodeActionProvider(iniManager, schemaManager), {
+			providedCodeActionKinds: IniCodeActionProvider.providedCodeActionKinds
+		})
+	);
+	registerCodeActionCommands(iniManager, schemaManager);
 
 	context.subscriptions.push(
 		vscode.languages.registerDefinitionProvider(selector, {

@@ -60,6 +60,8 @@ export enum ValueTypeCategory {
 export class SchemaManager {
     // 映射注册表节名 (如 'BuildingTypes') 到其对应的 schema 类型名 (如 'BuildingType')。
     private registries = new Map<string, string>();
+    // 反向映射：从 schema 类型名到其注册表节名。
+    private typeToRegistryMap = new Map<string, string>();
     // 映射 schema 类型名 (如 'AnimType') 到其对应的注册表节名 (如 'Animations')。
     private sections = new Map<string, string>();
     // 存储所有 schema 类型 (如 'BuildingType') 的详细定义 (键和基类)。
@@ -87,6 +89,7 @@ export class SchemaManager {
      */
     public clearSchema() {
         this.registries.clear();
+        this.typeToRegistryMap.clear();
         this.sections.clear();
         this.schemas.clear();
         this.keyCache.clear();
@@ -188,7 +191,10 @@ export class SchemaManager {
             if (typeName === 'Registries') {
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
-                    if (key && value) {this.registries.set(key, value);}
+                    if (key && value) {
+                        this.registries.set(key, value);
+                        this.typeToRegistryMap.set(value, key);
+                    }
                 }
             } else if (typeName === 'Sections') {
                 for (const line of data.contentLines) {
@@ -276,7 +282,7 @@ export class SchemaManager {
         if (this.numberLimitTypes.has(typeName)) {return ValueTypeCategory.NumberLimit;}
         if (this.stringLimitTypes.has(typeName)) {return ValueTypeCategory.StringLimit;}
         if (this.listTypes.has(typeName)) {return ValueTypeCategory.List;}
-        if (['int', 'float', 'double', 'string'].includes(typeName)) {return ValueTypeCategory.Primitive;}
+        if (['int', 'float', 'double', 'string', 'bool'].includes(typeName)) {return ValueTypeCategory.Primitive;}
         return ValueTypeCategory.Unknown;
     }
 
@@ -294,11 +300,20 @@ export class SchemaManager {
     }
     
     /**
+     * 根据类型名获取其对应的注册表名 (来自[Registries])。
+     * @param typeName 类型名, 如 'BuildingType'
+     * @returns 注册表名, 如 'BuildingTypes', 或 undefined
+     */
+    public getRegistryForType(typeName: string): string | undefined {
+        return this.typeToRegistryMap.get(typeName);
+    }
+    
+    /**
      * 根据类型名获取其对应的注册表名 (来自[Sections])。
      * @param typeName 类型名, 如 'AnimType'
      * @returns 注册表名, 如 'Animations', 或 undefined
      */
-    public getRegistryForType(typeName: string): string | undefined {
+    public getRegistryForComplexType(typeName: string): string | undefined {
         return this.sections.get(typeName);
     }
 

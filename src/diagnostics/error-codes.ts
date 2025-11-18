@@ -24,4 +24,5 @@ export enum ErrorCode {
 
     // Logic Errors (3xx)
     LOGIC_UNDEFINED_SECTION_REFERENCE = 'LOGIC-301',
+    LOGIC_UNREGISTERED_SECTION = 'LOGIC-302',
 }

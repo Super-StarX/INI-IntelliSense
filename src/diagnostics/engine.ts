@@ -6,6 +6,7 @@ import { SchemaManager } from '../schema-manager';
 import { INIManager } from '../parser';
 import { styleRules } from './rules/style-rules';
 import { typeRules } from './rules/type-rules';
+import { logicRules } from './rules/logic-rules';
 
 /**
  * 诊断上下文，为每个验证规则提供所需的所有信息。
@@ -29,7 +30,8 @@ export class DiagnosticEngine {
         // 在此注册所有验证规则
         this.rules = [
             ...styleRules,
-            ...typeRules
+            ...typeRules,
+            ...logicRules
         ];
     }
 
