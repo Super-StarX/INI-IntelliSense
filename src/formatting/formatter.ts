@@ -63,13 +63,9 @@ async function formatRange(editor: vscode.TextEditor, range: vscode.Range) {
  */
 function formatLine(text: string, config: vscode.WorkspaceConfiguration): string {
     // 1. 将行分解为代码部分和注释部分
-    let codePart = text;
-    let commentPart = '';
     const commentIndex = text.indexOf(';');
-    if (commentIndex !== -1) {
-        codePart = text.substring(0, commentIndex);
-        commentPart = text.substring(commentIndex);
-    }
+    const codePart = commentIndex === -1 ? text : text.substring(0, commentIndex);
+    const commentPart = commentIndex === -1 ? null : text.substring(commentIndex);
 
     // 2. 格式化代码部分
     let formattedCode = codePart.trim();
@@ -83,11 +79,12 @@ function formatLine(text: string, config: vscode.WorkspaceConfiguration): string
 
     // 3. 格式化注释部分
     let formattedComment = '';
-    if (commentPart) {
-        formattedComment = commentPart.trim();
-        // 确保分号后有空格（如果注释内容不为空）
-        if (config.get('spaceAfterComment') && formattedComment.length > 1 && !formattedComment.startsWith('; ')) {
-             formattedComment = `; ${formattedComment.substring(1).trim()}`;
+    if (commentPart !== null) {
+        const commentContent = commentPart.substring(1);
+        if (config.get('spaceAfterComment') && commentContent.length > 0 && !commentContent.startsWith(' ')) {
+            formattedComment = `; ${commentContent}`;
+        } else {
+            formattedComment = ';' + commentContent;
         }
     }
 

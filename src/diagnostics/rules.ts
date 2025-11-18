@@ -8,6 +8,8 @@ import { DiagnosticContext } from './engine';
 export interface RuleContext extends DiagnosticContext {
     line: vscode.TextLine;
     lineNumber: number;
+    codePart: string;
+    commentPart: string | null;
     currentSection: {
         name: string | null;
         typeName: string | null;

@@ -102,15 +102,15 @@ function validateValue(value: string, valueType: string, context: RuleContext, v
 }
 
 const checkKeyValueTypes: ValidationRule = (context: RuleContext): IniDiagnostic[] => {
-    const { line, currentSection } = context;
+    const { codePart, currentSection } = context;
 
-    const kvMatch = line.text.match(/^\s*([^;=\s][^=]*?)\s*=\s*(.*)/);
+    const kvMatch = codePart.match(/^\s*([^;=\s][^=]*?)\s*=\s*(.*)/);
     if (!kvMatch || !currentSection.keys) {
         return [];
     }
     
     const key = kvMatch[1].trim();
-    const valueString = kvMatch[2].split(';')[0].trim();
+    const valueString = kvMatch[2].trim();
     
     let valueType: string | undefined;
     for (const [k, v] of currentSection.keys.entries()) {
@@ -122,7 +122,7 @@ const checkKeyValueTypes: ValidationRule = (context: RuleContext): IniDiagnostic
 
     if (valueType) {
         // 计算值在行中的精确起始位置
-        const valueStartIndex = line.text.indexOf(kvMatch[2]) + (kvMatch[2].length - kvMatch[2].trimStart().length);
+        const valueStartIndex = codePart.indexOf(kvMatch[2]) + (kvMatch[2].length - kvMatch[2].trimStart().length);
         return validateValue(valueString, valueType, context, valueStartIndex);
     }
     

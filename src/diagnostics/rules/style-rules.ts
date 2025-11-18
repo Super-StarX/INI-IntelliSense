@@ -11,7 +11,7 @@ const checkLeadingWhitespace: ValidationRule = (context: RuleContext): IniDiagno
     }
 
     const leadingSpaceMatch = line.text.match(/^\s+/);
-    if (leadingSpaceMatch) {
+    if (leadingSpaceMatch && line.text.trim() !== '') {
         return [new IniDiagnostic(
             new vscode.Range(lineNumber, 0, lineNumber, leadingSpaceMatch[0].length),
             localize('diag.style.leadingWhitespace', 'Unnecessary leading whitespace at the beginning of the line.'),
@@ -23,13 +23,13 @@ const checkLeadingWhitespace: ValidationRule = (context: RuleContext): IniDiagno
 };
 
 const checkSpaceAroundEquals: ValidationRule = (context: RuleContext): IniDiagnostic[] => {
-    const { line, lineNumber, config } = context;
+    const { codePart, lineNumber, config } = context;
     const diagnostics: IniDiagnostic[] = [];
 
     if (config.get<boolean>('spaceBeforeEquals', true)) {
-        const equalsLeft = line.text.match(/(\s+)=/);
+        const equalsLeft = codePart.match(/(\s+)=/);
         if (equalsLeft) {
-            const start = line.text.indexOf(equalsLeft[0]);
+            const start = codePart.indexOf(equalsLeft[0]);
             diagnostics.push(new IniDiagnostic(
                 new vscode.Range(lineNumber, start, lineNumber, start + equalsLeft[1].length),
                 localize('diag.style.spaceBeforeEquals', 'Avoid spaces before the "=" sign.'),
@@ -40,9 +40,9 @@ const checkSpaceAroundEquals: ValidationRule = (context: RuleContext): IniDiagno
     }
 
     if (config.get<boolean>('spaceAfterEquals', true)) {
-        const equalsRight = line.text.match(/=(\s+)/);
+        const equalsRight = codePart.match(/=(\s+)/);
         if (equalsRight) {
-            const start = line.text.indexOf(equalsRight[0]) + 1;
+            const start = codePart.indexOf(equalsRight[0]) + 1;
             diagnostics.push(new IniDiagnostic(
                 new vscode.Range(lineNumber, start, lineNumber, start + equalsRight[1].length),
                 localize('diag.style.spaceAfterEquals', 'Avoid spaces after the "=" sign.'),
@@ -56,37 +56,33 @@ const checkSpaceAroundEquals: ValidationRule = (context: RuleContext): IniDiagno
 };
 
 const checkCommentSpacing: ValidationRule = (context: RuleContext): IniDiagnostic[] => {
-    const { line, lineNumber, config } = context;
+    const { line, lineNumber, config, codePart, commentPart } = context;
+    if (commentPart === null) {
+        return [];
+    }
+    
     const diagnostics: IniDiagnostic[] = [];
-    const lineText = line.text;
-    const commentIndex = lineText.indexOf(';');
-
-    if (commentIndex === -1) {return [];}
+    const commentStartIndex = codePart.length;
 
     const spacesBeforeComment = config.get<number | null>('spacesBeforeComment', 1);
-    if (spacesBeforeComment !== null) {
-        if (commentIndex > 0 && lineText.substring(0, commentIndex).trim().length > 0) {
-            const precedingText = lineText.substring(0, commentIndex);
-            const trailingSpacesMatch = precedingText.match(/(\s+)$/);
-            const numSpaces = trailingSpacesMatch ? trailingSpacesMatch[1].length : 0;
-            
-            if (numSpaces !== spacesBeforeComment) {
-                diagnostics.push(new IniDiagnostic(
-                    new vscode.Range(lineNumber, commentIndex - numSpaces, lineNumber, commentIndex),
-                    localize('diag.style.incorrectSpacesBeforeComment', 'There should be {0} space(s) before the comment character ";".', spacesBeforeComment),
-                    vscode.DiagnosticSeverity.Warning,
-                    ErrorCode.STYLE_INCORRECT_SPACES_BEFORE_COMMENT
-                ));
-            }
+    if (spacesBeforeComment !== null && codePart.trim().length > 0) {
+        const trailingSpacesMatch = codePart.match(/(\s+)$/);
+        const numSpaces = trailingSpacesMatch ? trailingSpacesMatch[1].length : 0;
+        
+        if (numSpaces !== spacesBeforeComment) {
+            diagnostics.push(new IniDiagnostic(
+                new vscode.Range(lineNumber, commentStartIndex - numSpaces, lineNumber, commentStartIndex),
+                localize('diag.style.incorrectSpacesBeforeComment', 'There should be {0} space(s) before the comment character ";".', spacesBeforeComment),
+                vscode.DiagnosticSeverity.Warning,
+                ErrorCode.STYLE_INCORRECT_SPACES_BEFORE_COMMENT
+            ));
         }
     }
 
     if (config.get<boolean>('spaceAfterComment', true)) {
-        const commentRightMatch = lineText.match(/;\S/);
-        if (commentRightMatch) {
-            const start = lineText.indexOf(commentRightMatch[0]);
+        if (commentPart.length > 1 && commentPart.charAt(1) !== ' ') {
             diagnostics.push(new IniDiagnostic(
-                new vscode.Range(lineNumber, start, lineNumber, start + 2),
+                new vscode.Range(lineNumber, commentStartIndex, lineNumber, commentStartIndex + 1),
                 localize('diag.style.missingSpaceAfterComment', 'There should be a space after the comment character ";".'),
                 vscode.DiagnosticSeverity.Warning,
                 ErrorCode.STYLE_MISSING_SPACE_AFTER_COMMENT

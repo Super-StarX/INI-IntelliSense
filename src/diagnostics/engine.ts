@@ -74,8 +74,13 @@ export class DiagnosticEngine {
         for (let i = startLine; i <= endLine && i < document.lineCount; i++) {
             const line = document.lineAt(i);
             
+            // 在引擎层面统一分割代码和注释
+            const commentIndex = line.text.indexOf(';');
+            const codePart = commentIndex === -1 ? line.text : line.text.substring(0, commentIndex);
+            const commentPart = commentIndex === -1 ? null : line.text.substring(commentIndex);
+
             // 更新当前节的上下文
-            const sectionMatch = line.text.match(/^\s*\[([^\]:]+)/);
+            const sectionMatch = codePart.match(/^\s*\[([^\]:]+)/);
             if (sectionMatch) {
                 currentSectionName = sectionMatch[1].trim();
                 currentTypeName = context.iniManager.getTypeForSection(currentSectionName);
@@ -86,6 +91,8 @@ export class DiagnosticEngine {
                 ...context,
                 line,
                 lineNumber: i,
+                codePart,
+                commentPart,
                 currentSection: {
                     name: currentSectionName,
                     typeName: currentTypeName,
