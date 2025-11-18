@@ -17,87 +17,47 @@ export class IniCodeActionProvider implements vscode.CodeActionProvider {
     ];
 
     provideCodeActions(document: vscode.TextDocument, range: vscode.Range | vscode.Selection, context: vscode.CodeActionContext, token: vscode.CancellationToken): vscode.ProviderResult<(vscode.Command | vscode.CodeAction)[]> {
-        const actions: vscode.CodeAction[] = [];
-        
-        for (const diagnostic of context.diagnostics) {
-            if (diagnostic instanceof IniDiagnostic && diagnostic.errorCode === ErrorCode.LOGIC_UNREGISTERED_SECTION) {
-                actions.push(this.createRegisterSectionAction(document, diagnostic));
-            }
+        return context.diagnostics
+            .filter(diagnostic => diagnostic instanceof IniDiagnostic)
+            .map(diagnostic => this.createFixAction(document, diagnostic as IniDiagnostic))
+            .filter(action => action !== undefined) as vscode.CodeAction[];
+    }
+    
+    private createFixAction(document: vscode.TextDocument, diagnostic: IniDiagnostic): vscode.CodeAction | undefined {
+        const edit = new vscode.WorkspaceEdit();
+        let action: vscode.CodeAction;
+
+        switch(diagnostic.errorCode) {
+            case ErrorCode.STYLE_LEADING_WHITESPACE:
+                action = new vscode.CodeAction(localize('codeaction.fix.leadingWhitespace', 'Remove unnecessary leading whitespace'), vscode.CodeActionKind.QuickFix);
+                edit.delete(document.uri, diagnostic.range);
+                break;
+            case ErrorCode.STYLE_SPACE_BEFORE_EQUALS:
+                action = new vscode.CodeAction(localize('codeaction.fix.spaceBeforeEquals', 'Remove spaces before \'=\''), vscode.CodeActionKind.QuickFix);
+                edit.delete(document.uri, diagnostic.range);
+                break;
+            case ErrorCode.STYLE_SPACE_AFTER_EQUALS:
+                action = new vscode.CodeAction(localize('codeaction.fix.spaceAfterEquals', 'Remove spaces after \'=\''), vscode.CodeActionKind.QuickFix);
+                edit.delete(document.uri, diagnostic.range);
+                break;
+            case ErrorCode.STYLE_MISSING_SPACE_AFTER_COMMENT:
+                action = new vscode.CodeAction(localize('codeaction.fix.spaceAfterComment', 'Add space after \';\''), vscode.CodeActionKind.QuickFix);
+                edit.insert(document.uri, diagnostic.range.start.translate(0, 1), ' ');
+                break;
+            case ErrorCode.STYLE_INCORRECT_SPACES_BEFORE_COMMENT:
+                const config = vscode.workspace.getConfiguration('ra2-ini-intellisense.diagnostics');
+                const requiredSpaces = config.get<number>('spacesBeforeComment', 1);
+                const title = localize('codeaction.fix.spacesBeforeComment', 'Fix spaces before comment to be {0}', requiredSpaces);
+                action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
+                edit.replace(document.uri, diagnostic.range, ' '.repeat(requiredSpaces));
+                break;
+            default:
+                return undefined;
         }
 
-        return actions;
-    }
-
-    private createRegisterSectionAction(document: vscode.TextDocument, diagnostic: IniDiagnostic): vscode.CodeAction {
-        const action = new vscode.CodeAction(localize('codeaction.registerSection', 'Register this section ID'), vscode.CodeActionKind.QuickFix);
         action.diagnostics = [diagnostic];
+        action.edit = edit;
         action.isPreferred = true;
-        
-        action.command = {
-            command: 'ra2-ini-intellisense.internal.registerSection',
-            title: localize('codeaction.registerSection.title', 'Register Section ID'),
-            arguments: [document.uri, diagnostic.range]
-        };
-
         return action;
     }
-}
-
-/**
- * 注册并实现代码操作背后的命令逻辑。
- * 将复杂逻辑放在命令中，可以保持 CodeActionProvider 的简洁性。
- */
-export function registerCodeActionCommands(iniManager: INIManager, schemaManager: SchemaManager) {
-    vscode.commands.registerCommand('ra2-ini-intellisense.internal.registerSection', async (uri: vscode.Uri, range: vscode.Range) => {
-        const document = await vscode.workspace.openTextDocument(uri);
-        const sectionName = document.getText(range);
-        
-        const typeName = iniManager.getTypeForSection(sectionName);
-        if (!typeName || !schemaManager.isComplexType(typeName)) {
-            vscode.window.showErrorMessage(localize('codeaction.registerSection.error.noType', 'Cannot determine the type for section "[{0}]".', sectionName));
-            return;
-        }
-
-        const registryName = schemaManager.getRegistryForType(typeName);
-        if (!registryName) {
-            vscode.window.showErrorMessage(localize('codeaction.registerSection.error.noRegistry', 'No registry list found for type "{0}" in the schema.', typeName));
-            return;
-        }
-
-        const registryLocation = iniManager.findSectionLocations(registryName)[0];
-        if (!registryLocation) {
-            vscode.window.showErrorMessage(localize('codeaction.registerSection.error.registryNotFound', 'Cannot find the registry section "[{0}]" in the workspace.', registryName));
-            return;
-        }
-
-        const registryDoc = await vscode.workspace.openTextDocument(registryLocation.uri);
-        const registryContent = registryDoc.getText();
-        const sectionRange = iniManager.findSectionRange(registryContent, registryName);
-
-        if (!sectionRange) {
-            return;
-        }
-
-        const lines = registryContent.substring(registryDoc.offsetAt(sectionRange.start), registryDoc.offsetAt(sectionRange.end)).split(/\r?\n/);
-        let maxIndex = -1;
-        for (const line of lines) {
-            const match = line.trim().match(/^(\d+)\s*=/);
-            if (match) {
-                const index = parseInt(match[1], 10);
-                if (index > maxIndex) {
-                    maxIndex = index;
-                }
-            }
-        }
-        
-        const newIndex = maxIndex + 1;
-        const textToInsert = `${newIndex}=${sectionName}\n`;
-        
-        const edit = new vscode.WorkspaceEdit();
-        // 插入到注册表节的最后一行之前
-        edit.insert(registryLocation.uri, sectionRange.end, textToInsert);
-        
-        await vscode.workspace.applyEdit(edit);
-        vscode.window.showInformationMessage(localize('codeaction.registerSection.success', 'Successfully registered "[{0}]" in "[{1}]" with index {2}.', sectionName, registryName, newIndex));
-    });
 }

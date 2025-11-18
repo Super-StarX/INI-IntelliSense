@@ -12,9 +12,10 @@ import { OverrideDecorator } from './override-decorator';
 import { WelcomePanel } from './welcome-panel';
 import { localize, initializeNls } from './i18n';
 import { IniRenameProvider } from './refactoring/rename-provider';
-import { IniCodeActionProvider, registerCodeActionCommands } from './refactoring/code-actions';
+import { IniCodeActionProvider } from './refactoring/code-actions';
 import { registerRegisterIdCommand } from './refactoring/register-id';
 import { registerExtractSuperclassCommand } from './refactoring/extract-superclass';
+import { registerFormattingCommands } from './formatting/formatter';
 
 let diagnostics: vscode.DiagnosticCollection;
 const LANGUAGE_ID = 'ra2-ini';
@@ -202,6 +203,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	// 注册重构命令
 	registerExtractSuperclassCommand(iniManager);
 	registerRegisterIdCommand(iniManager, schemaManager);
+	registerFormattingCommands();
 
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.showMainQuickPick', async () => {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
@@ -519,7 +521,6 @@ export async function activate(context: vscode.ExtensionContext) {
 			providedCodeActionKinds: IniCodeActionProvider.providedCodeActionKinds
 		})
 	);
-	registerCodeActionCommands(iniManager, schemaManager);
 
 	context.subscriptions.push(
 		vscode.languages.registerDefinitionProvider(selector, {

@@ -103,6 +103,16 @@
           "when": "editorTextFocus && editorLangId == 'ra2-ini'",
           "command": "ra2-ini-intellisense.refactor.extractSuperclass",
           "group": "2_refactor"
+        },
+        {
+          "when": "editorTextFocus && editorLangId == 'ra2-ini'",
+          "command": "ra2-ini-intellisense.format.selection",
+          "group": "9_format"
+        },
+        {
+          "when": "editorTextFocus && editorLangId == 'ra2-ini'",
+          "command": "ra2-ini-intellisense.format.document",
+          "group": "9_format"
         }
       ]
     },
@@ -151,6 +161,16 @@
         "command": "ra2-ini-intellisense.refactor.extractSuperclass",
         "title": "%command.extractSuperclass.title%",
         "category": "%command.category%.refactor"
+      },
+      {
+        "command": "ra2-ini-intellisense.format.selection",
+        "title": "%command.formatSelection.title%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "ra2-ini-intellisense.format.document",
+        "title": "%command.formatDocument.title%",
+        "category": "%command.category%"
       }
     ],
     "configuration": {

@@ -14,6 +14,8 @@
     "command.registerSectionContext.title": "Register Section ID to...",
     "command.showMainQuickPick.title": "INI: Show Main Menu",
     "command.extractSuperclass.title": "Extract Superclass...",
+    "command.formatSelection.title": "Format Selection/Line",
+    "command.formatDocument.title": "Format Document",
     "configuration.title": "INI IntelliSense",
     "configuration.properties.exePath.description": "Absolute path to INIValidator.exe. It's recommended to set this via the status bar icon or the 'Manage INI Validator' command.",
     "configuration.properties.validationFolderPath.description": "Absolute path to the root directory of the Mod to be validated. It's recommended to set this via the setup guide or the status bar icon.",
