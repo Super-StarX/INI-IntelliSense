@@ -290,14 +290,18 @@ export class INIValidatorExt {
             return false;
         }
 
-        const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-        const folderPath = config.get<string>('validationFolderPath');
+        // 优先使用配置的路径，如果没有，则使用当前工作区
+        let folderPath = vscode.workspace.getConfiguration('ra2-ini-intellisense').get<string>('validationFolderPath');
+        if (!folderPath && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            folderPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        }
+
         if (!folderPath) {
             vscode.window.showWarningMessage(localize('validator.run.folderNotSet', 'Mod validation root folder is not configured. Skipped INI Validator check.'));
             return false;
         }
 
-        const files = config.get<object>('validationFiles');
+        const files = vscode.workspace.getConfiguration('ra2-ini-intellisense').get<object>('validationFiles');
         const exeDir = path.dirname(this.exePath);
         const filesSectionContent = Object.entries(files || {}).map(([k, v]) => `${k}=${v}`).join('\n');
         const settingsContent = `[INIValidator]\nFolderPath=${folderPath}\nJsonLog=true\n\n[Files]\n${filesSectionContent}\n`;

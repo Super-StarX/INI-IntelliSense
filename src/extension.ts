@@ -63,6 +63,20 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(vscode.window.createTreeView('ini-outline', { treeDataProvider: outlineProvider }));
     context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.refreshOutline', () => outlineProvider.refresh()));
 
+    // 辅助函数：获取有效的项目根目录
+    // 优先级：用户配置 > 当前工作区第一个文件夹 > undefined
+    function getProjectRoot(): string | undefined {
+        const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
+        const configPath = config.get<string | null>('validationFolderPath');
+        if (configPath) {
+            return configPath;
+        }
+        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            return vscode.workspace.workspaceFolders[0].uri.fsPath;
+        }
+        return undefined;
+    }
+
 	async function indexWorkspaceFiles() {
 		if (isIndexing) { return; } // 防止重复索引
 		isIndexing = true;
@@ -72,22 +86,18 @@ export async function activate(context: vscode.ExtensionContext) {
 			const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
 			const includePatterns = config.get<string[]>('indexing.includePatterns', []);
 			const excludePatterns = config.get<string[]>('indexing.excludePatterns', []);
-			const validationFolderPath = config.get<string | null>('validationFolderPath');
+			
+            const projectRoot = getProjectRoot();
 
-			let searchRoot: vscode.WorkspaceFolder | vscode.Uri | undefined;
-			if (validationFolderPath) {
-				searchRoot = vscode.Uri.file(validationFolderPath);
-			} else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-				searchRoot = vscode.workspace.workspaceFolders[0];
-			}
-
-			if (!searchRoot || includePatterns.length === 0) {
-				console.log('INI IntelliSense: 未配置搜索路径或包含模式，跳过文件索引。');
+			if (!projectRoot || includePatterns.length === 0) {
+				// 如果既没配置路径，也没打开文件夹，或者没有包含模式，则无法索引
+				console.log('INI IntelliSense: 未找到有效项目根目录或包含模式，跳过文件索引。');
 				await iniManager.indexFiles([]);
 				outlineProvider.refresh();
 				return;
 			}
-
+            
+            const searchRoot = vscode.Uri.file(projectRoot);
 			const includePattern = new vscode.RelativePattern(searchRoot, `{${includePatterns.join(',')}}`);
 			const excludePattern = excludePatterns.length > 0 ? new vscode.RelativePattern(searchRoot, `{${excludePatterns.join(',')}}`) : null;
 			
@@ -112,9 +122,10 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
-		const modPath = config.get<string>('validationFolderPath');
+        const projectRoot = getProjectRoot();
 
-		if (!modPath) {
+		if (!projectRoot) {
+            // 只有当既没配置，也没打开文件夹时，才显示警告
 			mainStatusBar.text = `$(folder) INI: ${localize('statusbar.setProjectRoot', 'Set Project Root')}`;
 			mainStatusBar.tooltip = localize('statusbar.setProjectRoot.tooltip', 'Mod root directory is not set. Click to configure to enable file indexing and diagnostics.');
 			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
@@ -134,7 +145,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			const dictPath = config.get<string>('schemaFilePath')!;
 			
 			let tooltip = localize('statusbar.ready.tooltip.base', 'INI IntelliSense is ready') +
-				`\n- ${localize('statusbar.ready.tooltip.project', 'Project')}: ${path.basename(modPath)}` +
+				`\n- ${localize('statusbar.ready.tooltip.project', 'Project')}: ${path.basename(projectRoot)}` +
 				`\n- ${localize('statusbar.ready.tooltip.dictionary', 'Dictionary')}: ${path.basename(dictPath)}` +
 				`\n- ${localize('statusbar.ready.tooltip.indexed', 'Indexed Files')}: ${iniManager.files.size}`;
 			
@@ -148,7 +159,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 		mainStatusBar.show();
 	}
-
+    
 	async function loadSchemaFromConfiguration() {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
 		let schemaPath = config.get<string | null>('schemaFilePath', null);
@@ -209,11 +220,12 @@ export async function activate(context: vscode.ExtensionContext) {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
         const notSetDescription = localize('mainMenu.description.notSet', 'Click to set');
 
-        const modPath = config.get<string>('validationFolderPath');
+        // 使用 getProjectRoot 获取当前实际生效的路径
+        const projectRoot = getProjectRoot();
         const dictPath = config.get<string>('schemaFilePath');
 
-        const modPathDesc = modPath 
-            ? localize('mainMenu.description.modPath', 'Current: {0}', path.basename(modPath)) 
+        const modPathDesc = projectRoot 
+            ? localize('mainMenu.description.modPath', 'Current: {0}', path.basename(projectRoot)) 
             : notSetDescription;
         const dictPathDesc = dictPath
             ? localize('mainMenu.description.dictPath', 'Current: {0}', path.basename(dictPath))
@@ -836,15 +848,14 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 	);
 
-	// =================================================================
-	// 新增：在扩展激活后，检查并提示进行初始配置
-	// =================================================================
+	// 在扩展激活后，检查并提示进行初始配置
 	async function promptForInitialSetup() {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
-		const modPath = config.get<string>('validationFolderPath');
+        const projectRoot = getProjectRoot(); // 使用新的逻辑判断
 		const dontAsk = config.get<boolean>('dontAskToConfigureProject');
 
-		if (!modPath && !dontAsk) {
+        // 只有当真的找不到任何路径（既无配置也无工作区）时，才弹窗
+		if (!projectRoot && !dontAsk) {
 			const configureAction = localize('prompt.configureII.action.configure', 'Set Directory...');
 			const welcomeAction = localize('prompt.configureII.action.welcome', 'Open Setup Guide');
 			const dontAskAction = localize('prompt.configureII.action.dontAsk', "Don't Ask Again");
