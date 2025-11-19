@@ -16,6 +16,7 @@ import { IniCodeActionProvider } from './refactoring/code-actions';
 import { registerRegisterIdCommand } from './refactoring/register-id';
 import { registerExtractSuperclassCommand } from './refactoring/extract-superclass';
 import { registerFormattingCommands } from './formatting/formatter';
+import { DictionaryService } from './dictionary-service';
 
 let diagnostics: vscode.DiagnosticCollection;
 const LANGUAGE_ID = 'ra2-ini';
@@ -35,7 +36,8 @@ export async function activate(context: vscode.ExtensionContext) {
 	const schemaManager = new SchemaManager();
 	iniManager.setSchemaManager(schemaManager);
 	const diagnosticEngine = new DiagnosticEngine();
-	let isIndexing = false; // 标志位，用于跟踪是否正在进行索引
+	let isIndexing = false; // 跟踪是否正在进行索引
+    let isDiagnosing = false; // 跟踪是否正在进行诊断
 
 	const selector = { language: LANGUAGE_ID };
 
@@ -53,6 +55,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	diagnostics = vscode.languages.createDiagnosticCollection('ini');
 	const iniValidator = new INIValidatorExt(diagnostics);
+    const dictionaryService = new DictionaryService(context);
 	// 不要 await 初始化，让它在后台运行
 	iniValidator.initialize(context);
 	// 监听校验器状态变化，以更新统一状态栏
@@ -121,6 +124,14 @@ export async function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
+        if (isDiagnosing) {
+            mainStatusBar.text = `$(beaker) INI: ${localize('statusbar.diagnosing', 'Diagnosing...')}`;
+            mainStatusBar.tooltip = "Running diagnostics on open files...";
+            mainStatusBar.backgroundColor = undefined;
+            mainStatusBar.show();
+            return;
+        }
+
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
         const projectRoot = getProjectRoot();
 
@@ -180,6 +191,17 @@ export async function activate(context: vscode.ExtensionContext) {
 		
 		// 索引依赖于schema，所以放在这里。注意：这里不 await
 		indexWorkspaceFiles();
+        // 加载完成后，立即触发诊断
+        // 优先诊断当前活动编辑器，提升体验
+        if (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.languageId === LANGUAGE_ID) {
+            triggerUpdateDiagnostics(vscode.window.activeTextEditor.document);
+        }
+        // 然后对所有其他可见编辑器进行诊断
+        vscode.window.visibleTextEditors.forEach(editor => {
+            if (editor !== vscode.window.activeTextEditor && editor.document.languageId === LANGUAGE_ID) {
+                triggerUpdateDiagnostics(editor.document);
+            }
+        });
 	}
 	
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.configureSchemaPath', async () => {
@@ -480,27 +502,43 @@ export async function activate(context: vscode.ExtensionContext) {
 		}, 300));
 	};
 
-
-    const updateDiagnostics = (document: vscode.TextDocument) => {
+    const updateDiagnostics = async (document: vscode.TextDocument) => {
         if (document.languageId !== LANGUAGE_ID || document.isClosed) {
             return;
         }
 
-		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense.diagnostics');
-		const disabledErrorCodes = new Set<ErrorCode>(config.get<string[]>('disable', []).map(code => code as ErrorCode));
+        isDiagnosing = true;
+        updateMainStatus(); 
 
-		const context = {
-			document,
-			schemaManager,
-			iniManager,
-			config,
-			disabledErrorCodes
-		};
+        try {
+            const config = vscode.workspace.getConfiguration('ra2-ini-intellisense.diagnostics');
+            
+            // 显式转换为字符串数组，防止 Set 中混入非字符串类型导致匹配失败
+            const rawDisableConfig = config.get<string[]>('disable', []);
+            const disabledErrorCodes = new Set<string>(rawDisableConfig.map(c => String(c)));
 
-		const externalDiagnostics = (diagnostics.get(document.uri) || []).filter(d => d.source === 'INI Validator');
-		const internalDiagnostics = diagnosticEngine.analyze(context);
+            const context = {
+                document,
+                schemaManager,
+                iniManager,
+                config,
+                disabledErrorCodes,
+                outputChannel // 传递输出通道
+            };
 
-		diagnostics.set(document.uri, [...externalDiagnostics, ...internalDiagnostics]);
+            await new Promise(resolve => setTimeout(resolve, 0));
+            
+            const externalDiagnostics = (diagnostics.get(document.uri) || []).filter(d => d.source === 'INI Validator');
+            const internalDiagnostics = diagnosticEngine.analyze(context);
+
+            diagnostics.set(document.uri, [...externalDiagnostics, ...internalDiagnostics]);
+        } catch (e) {
+            console.error(e);
+            outputChannel.appendLine(`[Error] Diagnostic failed: ${e}`);
+        } finally {
+            isDiagnosing = false;
+            updateMainStatus(); 
+        }
     };
 
     vscode.workspace.onDidChangeTextDocument(async event => {
@@ -851,25 +889,35 @@ export async function activate(context: vscode.ExtensionContext) {
 	// 在扩展激活后，检查并提示进行初始配置
 	async function promptForInitialSetup() {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
-        const projectRoot = getProjectRoot(); // 使用新的逻辑判断
+		const projectRoot = getProjectRoot();
+        const dictPath = config.get<string>('schemaFilePath');
 		const dontAsk = config.get<boolean>('dontAskToConfigureProject');
 
-        // 只有当真的找不到任何路径（既无配置也无工作区）时，才弹窗
-		if (!projectRoot && !dontAsk) {
-			const configureAction = localize('prompt.configureII.action.configure', 'Set Directory...');
-			const welcomeAction = localize('prompt.configureII.action.welcome', 'Open Setup Guide');
+		if ((!projectRoot || !dictPath) && !dontAsk) {
+            const openWizardAction = localize('prompt.configureII.action.welcome', 'Open Setup Guide');
 			const dontAskAction = localize('prompt.configureII.action.dontAsk', "Don't Ask Again");
+            
+            let message: string;
+            let quickAction: string | undefined;
 
-			const selection = await vscode.window.showInformationMessage(
-				localize('prompt.configureII.message', 'Welcome to INI IntelliSense! Please set your Mod project root directory to enable all features.'),
-				configureAction,
-				welcomeAction,
-				dontAskAction
-			);
+            if (!projectRoot) {
+                message = localize('prompt.configureII.message.root', 'Welcome to INI IntelliSense! Please set your Mod project root directory to enable all features.');
+            } else {
+                // 如果只缺字典，提供一键自动配置
+                message = localize('prompt.configureII.message.dict', 'INI Dictionary is missing. Would you like to download and configure it automatically?');
+                quickAction = localize('prompt.configureII.action.autoConfig', 'Auto Configure');
+            }
 
-			if (selection === configureAction) {
-				await configureModPath();
-			} else if (selection === welcomeAction) {
+            const items = quickAction ? [quickAction, openWizardAction, dontAskAction] : [openWizardAction, dontAskAction];
+			const selection = await vscode.window.showInformationMessage(message, ...items);
+
+            if (selection === quickAction && quickAction) {
+                // 调用服务进行下载
+                await dictionaryService.downloadAndConfigure();
+                
+                await loadSchemaFromConfiguration(); 
+                updateMainStatus();
+            } else if (selection === openWizardAction) {
 				vscode.commands.executeCommand('ra2-ini-intellisense.showWelcomePage');
 			} else if (selection === dontAskAction) {
 				await config.update('dontAskToConfigureProject', true, vscode.ConfigurationTarget.Workspace);

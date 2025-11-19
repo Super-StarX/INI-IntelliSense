@@ -144,6 +144,10 @@ export class SchemaManager {
      * @param filePath INICodingCheck.ini 文件的绝对路径
      */
     public loadSchema(content: string, filePath: string) {
+        console.log(`[SchemaManager] Starting to load schema from: ${filePath}`);
+        console.log(`[SchemaManager] Content Preview:\n${content.substring(0, 200)}...`);
+        const startTime = Date.now();
+
         this.clearSchema();
         this.schemaFilePath = filePath;
         
@@ -251,6 +255,23 @@ export class SchemaManager {
 
         if (this.registries.size > 0 || this.schemas.size > 0) {
             this.isLoaded = true;
+        }
+
+        const endTime = Date.now();
+        console.log(`[SchemaManager] Schema loaded in ${endTime - startTime}ms.`);
+        console.log(`[SchemaManager] Stats:`);
+        console.log(`  - Registries: ${this.registries.size}`);
+        console.log(`  - Sections (Type Definitions): ${this.schemas.size}`);
+        console.log(`  - Number Limits: ${this.numberLimits.size}`);
+        console.log(`  - String Limits: ${this.stringLimits.size}`);
+        console.log(`  - List Definitions: ${this.listDefinitions.size}`);
+        
+        // 关键检查：如果某些核心数据为0，打印警告
+        if (this.registries.size === 0) {
+            console.warn(`[SchemaManager] WARNING: No registries found! Type inference will likely fail.`);
+        }
+        if (this.schemas.size === 0) {
+            console.warn(`[SchemaManager] WARNING: No section definitions found! Key validation will fail.`);
         }
     }
 

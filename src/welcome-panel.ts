@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as https from 'https';
 import { localize } from './i18n';
+import { DictionaryService } from './dictionary-service';
 
 /**
  * 管理欢迎和设置向导的 Webview 面板
@@ -59,7 +60,14 @@ export class WelcomePanel {
                 this.selectModPath(message.useWorkspaceFolder);
                 return;
             case 'downloadDictionary':
-                this.downloadDictionary();
+                // 在这里调用公共服务
+                const service = new DictionaryService(this._context);
+                try {
+                    const path = await service.downloadAndConfigure();
+                    this._panel.webview.postMessage({ command: 'downloadFinished', path: path });
+                } catch (error: any) {
+                    this._panel.webview.postMessage({ command: 'downloadFailed', error: error.message });
+                }
                 return;
             case 'selectDictionary':
                 this.selectDictionary();
@@ -128,47 +136,6 @@ export class WelcomePanel {
         } else {
             this._panel.webview.postMessage({ command: 'pathSelectionFailed' });
         }
-    }
-
-    private async downloadDictionary() {
-        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-            vscode.window.showErrorMessage("请先打开一个工作区文件夹以保存下载的文件。");
-            this._panel.webview.postMessage({ command: 'downloadFailed', error: "No workspace folder open." });
-            return;
-        }
-        
-        const url = 'https://raw.githubusercontent.com/Starry-Orbit-Studio/RA2-INI-Dictionary/main/INIDictionary.ini';
-        const targetDir = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, '.vscode');
-        const targetPath = vscode.Uri.joinPath(targetDir, 'INIDictionary.ini');
-
-        try {
-            await vscode.workspace.fs.createDirectory(targetDir);
-            
-            const content = await this.httpsGet(url);
-            await vscode.workspace.fs.writeFile(targetPath, Buffer.from(content));
-            
-            this._panel.webview.postMessage({ command: 'downloadFinished', path: targetPath.fsPath });
-            vscode.window.showInformationMessage(`INI Dictionary 已成功下载并配置到: ${targetPath.fsPath}`);
-        } catch (error: any) {
-            this._panel.webview.postMessage({ command: 'downloadFailed', error: error.message });
-            vscode.window.showErrorMessage(`下载 INI Dictionary 失败: ${error.message}`);
-        }
-    }
-
-    private httpsGet(url: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            https.get(url, (res) => {
-                if (res.statusCode !== 200) {
-                    reject(new Error(`请求失败，状态码: ${res.statusCode}`));
-                    return;
-                }
-                let data = '';
-                res.on('data', (chunk) => { data += chunk; });
-                res.on('end', () => resolve(data));
-            }).on('error', (err) => {
-                reject(err);
-            });
-        });
     }
 
     private async selectDictionary() {
