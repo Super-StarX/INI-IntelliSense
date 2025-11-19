@@ -120,7 +120,7 @@ export class INIValidatorExt {
             files[key] = value;
         } else {
             const match = selection.label.match(/\[(.*?)\]/);
-            if (!match) return;
+            if (!match) {return;}
             const key = match[1];
             const action = await vscode.window.showQuickPick([localize('validator.manageFiles.action.edit', 'Edit Value'), localize('validator.manageFiles.action.delete', 'Delete Entry')], { placeHolder: localize('validator.manageFiles.action.placeholder', 'Action for "{0}"', selection.label) });
             if (!action) {

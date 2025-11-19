@@ -3,8 +3,12 @@
   "displayName": "%extension.displayName%",
   "publisher": "Astralette",
   "description": "%extension.description%",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Super-StarX/INI-IntelliSense.git"
+  },
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "engines": {
     "vscode": "^1.96.0"
   },

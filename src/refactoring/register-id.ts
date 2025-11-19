@@ -9,7 +9,7 @@ import { localize } from '../i18n';
 export function registerRegisterIdCommand(iniManager: INIManager, schemaManager: SchemaManager) {
     vscode.commands.registerCommand('ra2-ini-intellisense.registerSectionContext', async (contextUri?: vscode.Uri, contextPosition?: vscode.Position) => {
         const editor = vscode.window.activeTextEditor;
-        if (!editor) return;
+        if (!editor) {return;}
 
         const position = contextPosition || editor.selection.active;
         const sectionName = iniManager.getSectionNameAtLine(editor.document.uri.fsPath, position.line);
@@ -42,7 +42,7 @@ export function registerRegisterIdCommand(iniManager: INIManager, schemaManager:
         const registryDoc = await vscode.workspace.openTextDocument(registryLocation.uri);
         const registryContent = registryDoc.getText();
         const sectionRange = iniManager.findSectionRange(registryContent, selectedRegistry);
-        if (!sectionRange) return;
+        if (!sectionRange) {return;}
 
         const lines = registryContent.substring(registryDoc.offsetAt(sectionRange.start), registryDoc.offsetAt(sectionRange.end)).split(/\r?\n/);
         let maxIndex = -1;

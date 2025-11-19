@@ -248,7 +248,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			placeHolder: "INI IntelliSense 主菜单"
 		});
 
-		if (!selection) return;
+		if (!selection) {return;}
 
 		if (selection.label.includes("设置向导")) {
 			vscode.commands.executeCommand('ra2-ini-intellisense.showWelcomePage');

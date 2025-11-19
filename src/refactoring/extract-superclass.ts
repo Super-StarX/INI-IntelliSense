@@ -121,7 +121,9 @@ function findCommonProperties(sections: string[], iniManager: INIManager): Map<s
     }
 
     const firstSectionData = iniManager.getSectionData(sections[0]);
-    if (!firstSectionData) return new Map();
+    if (!firstSectionData) {
+        return new Map();
+    }
 
     const common = new Map<string, string>();
     for (const [key, value] of Object.entries(firstSectionData)) {
