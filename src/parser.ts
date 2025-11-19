@@ -230,7 +230,7 @@ export class INIManager {
      * 构建交叉引用索引，包括值引用、继承引用和节定义位置。
      */
     private buildCrossReferencesIndex() {
-        const sectionRegex = /^\s*\[([^\]:]+)(?::\[([^\]]+)\])?/;
+        const sectionRegex = /^\s*\[([^\]:]+)\](?::\[([^\]]+)\])?(?:[ \t]*;.*)?$/;
         const keyValueRegex = /^\s*[^;=\s][^=]*=\s*(.*)/;
 
         for (const [filePath, fileData] of this.files.entries()) {
