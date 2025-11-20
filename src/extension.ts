@@ -397,12 +397,13 @@ export async function activate(context: vscode.ExtensionContext) {
 	const onFileChange = async (uri: vscode.Uri) => {
 		console.log(`INI 文件变更: ${uri.fsPath}, 正在增量更新索引...`);
 		await iniManager.updateFile(uri);
-		vscode.workspace.textDocuments.forEach(doc => {
-			if (doc.languageId === LANGUAGE_ID) {
-				triggerUpdateDiagnostics(doc);
-				overrideDecorator.triggerUpdateDecorations(doc.uri);
-			}
-		});
+        vscode.window.visibleTextEditors.forEach(editor => {
+            if (editor.document.uri.toString() === uri.toString() && editor.document.languageId === LANGUAGE_ID) {
+				triggerUpdateDiagnostics(editor.document);
+				overrideDecorator.triggerUpdateDecorations(editor);
+            }
+        });
+        
 		outlineProvider.refresh();
 	};
 

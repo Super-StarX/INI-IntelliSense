@@ -145,7 +145,6 @@ export class SchemaManager {
      */
     public loadSchema(content: string, filePath: string) {
         console.log(`[SchemaManager] Starting to load schema from: ${filePath}`);
-        console.log(`[SchemaManager] Content Preview:\n${content.substring(0, 200)}...`);
         const startTime = Date.now();
 
         this.clearSchema();
