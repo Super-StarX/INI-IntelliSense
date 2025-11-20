@@ -99,7 +99,7 @@ export function registerExtractSuperclassCommand(iniManager: INIManager) {
                 const sectionData = iniManager.getSectionData(sectionName);
                 if (sectionData) {
                     for (const key of propertiesToExtract) {
-                        const keyLocation = iniManager.findKeyLocation(sectionName, key, sectionData);
+                        const keyLocation = iniManager.findKeyLocation(sectionName, key);
                         if (keyLocation && keyLocation.location.uri.fsPath === location.uri.fsPath) {
                             // 删除整行
                             const lineRange = doc.lineAt(keyLocation.location.range.start.line).rangeIncludingLineBreak;

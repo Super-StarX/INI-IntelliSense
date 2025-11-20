@@ -56,7 +56,7 @@ export class DiagnosticEngine {
         // --- 性能优化：上下文构建 ---
         let currentSectionName: string | null = null;
         let currentTypeName: string | null = null;
-        let currentKeys: Map<string, string> | null = null;
+        let currentKeys: Map<string, any> | null = null;
 
         if (startLine > 0) {
             for (let i = startLine - 1; i >= 0; i--) {

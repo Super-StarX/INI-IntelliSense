@@ -35,11 +35,13 @@ export async function activate(context: vscode.ExtensionContext) {
 	const iniManager = new INIManager();
 	const outlineProvider = new INIOutlineProvider(context, iniManager);
 	const schemaManager = new SchemaManager();
-	iniManager.setSchemaManager(schemaManager);
-	const diagnosticEngine = new DiagnosticEngine();
     const fileTypeManager = new FileTypeManager();
-	let isIndexing = false; // 跟踪是否正在进行索引
-    let isDiagnosing = false; // 跟踪是否正在进行诊断
+	iniManager.setSchemaManager(schemaManager);
+    iniManager.setFileTypeManager(fileTypeManager);
+	const diagnosticEngine = new DiagnosticEngine();
+    
+	let isIndexing = false; 
+    let isDiagnosing = false; 
 
 	const selector = { language: LANGUAGE_ID };
 
@@ -47,7 +49,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.languages.registerDocumentSemanticTokensProvider(selector, new IniSemanticTokensProvider(), legend)
 	);
 
-	const overrideDecorator = new OverrideDecorator(context, iniManager, schemaManager);
+	const overrideDecorator = new OverrideDecorator(context, iniManager, schemaManager, fileTypeManager);
 	context.subscriptions.push(overrideDecorator);
 
 	// 创建一个统一的状态栏入口
@@ -435,9 +437,9 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.workspace.textDocuments.forEach(doc => {
 			if (doc.languageId === LANGUAGE_ID) {
 				triggerUpdateDiagnostics(doc);
-				overrideDecorator.triggerUpdateDecorations(doc.uri);
 			}
 		});
+        overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
 		outlineProvider.refresh();
 	};
 
@@ -678,51 +680,55 @@ export async function activate(context: vscode.ExtensionContext) {
 				const typeName = iniManager.getTypeForSection(currentSectionName);
 				if (typeName) {
 					const allKeys = schemaManager.getAllKeysForType(typeName);
-					let valueType: string | undefined;
+					let propDef: import('./schema-manager').PropertyDefinition | undefined;
 					for (const [k, v] of allKeys.entries()) {
 						if (k.toLowerCase() === keyPart.toLowerCase()) {
-							valueType = v;
+							propDef = v;
 							break;
 						}
 					}
 			
-					if (valueType) {
-						markdown.appendCodeblock(`${keyPart}: ${valueType}`, 'ini');
-						markdown.appendMarkdown(localize('hover.type.belongsTo', `Belongs to type **{0}**.`, typeName));
+					if (propDef) {
+						markdown.appendCodeblock(`${keyPart}: ${propDef.type}`, 'ini');
+                        if (propDef.defaultValue) {
+                            markdown.appendMarkdown(`\n- Default: \`${propDef.defaultValue}\``);
+                        }
+                        if (propDef.fileType) {
+                            markdown.appendMarkdown(`\n- File Type: \`${propDef.fileType}\``);
+                        }
+						markdown.appendMarkdown(localize('hover.type.belongsTo', `\n\nBelongs to type **{0}**.`, typeName));
 						hasContent = true;
 					}
 				}
 
-				const parentName = iniManager.getInheritance(currentSectionName);
+                const currentFileType = fileTypeManager.getFileType(document.uri);
+				const parentName = iniManager.getInheritance(currentSectionName, currentFileType);
 				if (parentName) {
-					const parentTypeName = iniManager.getTypeForSection(parentName);
-					const parentKeys = schemaManager.getAllKeysForType(parentTypeName);
+                    // 传入当前文件的类型以进行隔离
+                    const currentFileType = fileTypeManager.getFileType(document.uri);
+					const parentKeyInfo = iniManager.findKeyLocationRecursive(parentName, keyPart, currentFileType); 
+				
+					if (parentKeyInfo && parentKeyInfo.location && parentKeyInfo.lineText && parentKeyInfo.definer) {
+						if(hasContent) {markdown.appendMarkdown('\n\n---\n\n');}
 
-					if (parentKeys.has(keyPart)) {
-						const parentKeyInfo = iniManager.findKeyLocationRecursive(parentName, keyPart); 
-					
-						if (parentKeyInfo && parentKeyInfo.location && parentKeyInfo.lineText && parentKeyInfo.definer) {
-							if(hasContent) {markdown.appendMarkdown('\n\n---\n\n');}
+						const lineNum = parentKeyInfo.location.range.start.line + 1;
+						const fileName = path.basename(parentKeyInfo.location.uri.fsPath);
 
-							const lineNum = parentKeyInfo.location.range.start.line + 1;
-							const fileName = path.basename(parentKeyInfo.location.uri.fsPath);
+						markdown.appendMarkdown(localize('hover.override.info', `This key overrides a value from base class in **{0}**:L{1}`, fileName, lineNum));
+						
+						const parentValueMatch = parentKeyInfo.lineText.match(/=\s*(.*)/);
+						const parentValueRaw = parentValueMatch ? parentValueMatch[1].trim() : '';
+						const parentValue = parentValueRaw.split(';')[0].trim();
 
-							markdown.appendMarkdown(localize('hover.override.info', `This key overrides a value from base class in **{0}**:L{1}`, fileName, lineNum));
-							
-							const parentValueMatch = parentKeyInfo.lineText.match(/=\s*(.*)/);
-							const parentValueRaw = parentValueMatch ? parentValueMatch[1].trim() : '';
-							const parentValue = parentValueRaw.split(';')[0].trim();
+						markdown.appendCodeblock(`[${parentKeyInfo.definer}]\n${keyPart}=${parentValue || ''}`, 'ini');
 
-							markdown.appendCodeblock(`[${parentKeyInfo.definer}]\n${keyPart}=${parentValue || ''}`, 'ini');
-
-							const args = {
-								uri: parentKeyInfo.location.uri.toString(),
-								position: parentKeyInfo.location.range.start
-							};
-							const commandUri = vscode.Uri.parse(`command:ra2-ini-intellisense.jumpToOverride?${encodeURIComponent(JSON.stringify(args))}`);
-							markdown.appendMarkdown(localize('hover.override.jumpLink', `[$(go-to-file) Go to Parent Definition]({0})`, commandUri.toString()));
-							hasContent = true;
-						}
+						const args = {
+							uri: parentKeyInfo.location.uri.toString(),
+							position: parentKeyInfo.location.range.start
+						};
+						const commandUri = vscode.Uri.parse(`command:ra2-ini-intellisense.jumpToOverride?${encodeURIComponent(JSON.stringify(args))}`);
+						markdown.appendMarkdown(localize('hover.override.jumpLink', `[$(go-to-file) Go to Parent Definition]({0})`, commandUri.toString()));
+						hasContent = true;
 					}
 				}
 
@@ -753,12 +759,25 @@ export async function activate(context: vscode.ExtensionContext) {
 				if (isKeyCompletion) {
 					const keys = schemaManager.getAllKeysForType(typeName);
 					if (keys.size === 0) {return new vscode.CompletionList([], false);}
+                    
+                    const currentFileType = fileTypeManager.getFileType(document.uri);
 			
-					const items = Array.from(keys.entries()).map(([key, valueType]) => {
-						const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
-						item.detail = `(${valueType})`;
-						return item;
-					});
+					const items = Array.from(keys.entries())
+                        .filter(([key, propDef]) => {
+                             // 如果字典定义了文件类型，且当前文件类型已知，且不匹配，则不显示该补全
+                             if (propDef.fileType && currentFileType !== 'INI' && propDef.fileType !== currentFileType) {
+                                 return false;
+                             }
+                             return true;
+                        })
+                        .map(([key, propDef]) => {
+                            const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
+                            item.detail = `(${propDef.type})`;
+                            if (propDef.defaultValue) {
+                                item.documentation = `Default: ${propDef.defaultValue}`;
+                            }
+                            return item;
+					    });
 					return new vscode.CompletionList(items, false);
 				} else {
 					const suggestions: vscode.CompletionItem[] = [];
@@ -766,9 +785,9 @@ export async function activate(context: vscode.ExtensionContext) {
 					const allKeys = schemaManager.getAllKeysForType(typeName);
 						
 					let valueType: string | undefined;
-					for (const [key, type] of allKeys.entries()) {
+					for (const [key, propDef] of allKeys.entries()) {
 						if (key.toLowerCase() === currentKey.toLowerCase()) {
-							valueType = type;
+							valueType = propDef.type;
 							break;
 						}
 					}
@@ -844,9 +863,9 @@ export async function activate(context: vscode.ExtensionContext) {
 					if (typeName) {
 						const allKeys = schemaManager.getAllKeysForType(typeName);
 						let valueType: string | undefined;
-						for (const [key, type] of allKeys.entries()) {
+						for (const [key, propDef] of allKeys.entries()) {
 							if (key.toLowerCase() === currentKey.toLowerCase()) {
-								valueType = type;
+								valueType = propDef.type;
 								break;
 							}
 						}

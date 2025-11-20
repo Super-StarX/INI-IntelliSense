@@ -14,7 +14,7 @@ export interface RuleContext extends DiagnosticContext {
     currentSection: {
         name: string | null;
         typeName: string | null;
-        keys: Map<string, string> | null;
+        keys: Map<string, any> | null;
     };
 }
 

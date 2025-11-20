@@ -4,11 +4,20 @@ import * as ini from 'ini';
 import { localize } from './i18n';
 
 /**
+ * 定义一个属性的详细定义。
+ */
+export interface PropertyDefinition {
+    type: string;        // 值的类型，如 'int', 'bool', 'BuildingType'
+    defaultValue?: string; // 默认值
+    fileType?: string;   // 该键所属的文件类型，如 'rules', 'art'。如果未定义，则通用。
+}
+
+/**
  * 存储一个Schema类型的定义。
  */
 interface SchemaDefinition {
     // 该类型自身定义的键。
-    keys: Map<string, string>; // key -> valueType
+    keys: Map<string, PropertyDefinition>; // key -> PropertyDefinition
     // 该类型的父类名称。
     base: string | null;
 }
@@ -67,7 +76,7 @@ export class SchemaManager {
     // 存储所有 schema 类型 (如 'BuildingType') 的详细定义 (键和基类)。
     private schemas = new Map<string, SchemaDefinition>();
     // 缓存已计算的类型键集合, 避免对同一类型的继承链进行重复遍历, 提高性能。
-    private keyCache = new Map<string, Map<string, string>>();
+    private keyCache = new Map<string, Map<string, PropertyDefinition>>();
     // 标记Schema文件是否已成功加载并解析。
     private isLoaded: boolean = false;
     private schemaFilePath: string | null = null;
@@ -245,7 +254,8 @@ export class SchemaManager {
                     const [key, value] = this.parseKeyValue(line);
                     if (key) {
                         const keyName = key.split('(')[0].trim();
-                        definition.keys.set(keyName, value || 'string'); // 确保值不是undefined, 默认为string
+                        const propertyDef = this.parsePropertyDefinition(value || 'string');
+                        definition.keys.set(keyName, propertyDef);
                     }
                 }
                 this.schemas.set(typeName, definition);
@@ -258,20 +268,25 @@ export class SchemaManager {
 
         const endTime = Date.now();
         console.log(`[SchemaManager] Schema loaded in ${endTime - startTime}ms.`);
-        console.log(`[SchemaManager] Stats:`);
-        console.log(`  - Registries: ${this.registries.size}`);
-        console.log(`  - Sections (Type Definitions): ${this.schemas.size}`);
-        console.log(`  - Number Limits: ${this.numberLimits.size}`);
-        console.log(`  - String Limits: ${this.stringLimits.size}`);
-        console.log(`  - List Definitions: ${this.listDefinitions.size}`);
+    }
+
+    /**
+     * 解析属性定义字符串。
+     * 格式: type,default,fileType
+     * 例如: "int", "int,0", "Anim,<none>,art", ",,rules"
+     */
+    private parsePropertyDefinition(valueString: string): PropertyDefinition {
+        const parts = valueString.split(',').map(p => p.trim());
         
-        // 关键检查：如果某些核心数据为0，打印警告
-        if (this.registries.size === 0) {
-            console.warn(`[SchemaManager] WARNING: No registries found! Type inference will likely fail.`);
-        }
-        if (this.schemas.size === 0) {
-            console.warn(`[SchemaManager] WARNING: No section definitions found! Key validation will fail.`);
-        }
+        const type = parts[0] || 'string';
+        const defaultValue = parts.length > 1 && parts[1] !== '' ? parts[1] : undefined;
+        const fileType = parts.length > 2 && parts[2] !== '' ? parts[2] : undefined;
+
+        return {
+            type,
+            defaultValue,
+            fileType
+        };
     }
 
     /**
@@ -363,9 +378,9 @@ export class SchemaManager {
     /**
      * 获取指定类型的所有合法键，包括从所有父类递归继承的键。
      * @param typeName 类型名, 如 'BuildingType'
-     * @returns 一个包含所有键及其值类型的 Map
+     * @returns 一个包含所有键及其完整定义的 Map
      */
-    public getAllKeysForType(typeName: string): Map<string, string> {
+    public getAllKeysForType(typeName: string): Map<string, PropertyDefinition> {
         // 优先从缓存中读取, 避免重复计算。
         if (this.keyCache.has(typeName)) {
             return this.keyCache.get(typeName)!;
@@ -470,7 +485,7 @@ export class SchemaManager {
      */
     public getDebugInfoForType(typeName: string): string[] {
         const lines: string[] = [];
-        const analyzed = new Set<string>(); // 防止循环继承导致的无限递归
+        const analyzed = new Set<string>();
 
         const analyze = (name: string, indent: string) => {
             if (analyzed.has(name)) {

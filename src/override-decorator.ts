@@ -1,6 +1,8 @@
+
 import * as vscode from 'vscode';
 import { INIManager } from './parser';
 import { SchemaManager } from './schema-manager';
+import { FileTypeManager } from './file-type-manager';
 
 /**
  * 负责检测并高亮显示覆盖了父类键的子类键。
@@ -14,7 +16,8 @@ export class OverrideDecorator implements vscode.Disposable {
     constructor(
         private context: vscode.ExtensionContext,
         private iniManager: INIManager,
-        private schemaManager: SchemaManager
+        private schemaManager: SchemaManager,
+        private fileTypeManager: FileTypeManager
     ) {
         this.decorationType = this.createDecoration();
         this.updateEnabledStatus();
@@ -108,6 +111,9 @@ export class OverrideDecorator implements vscode.Disposable {
         
         const sectionRegex = /^\s*\[([^\]:]+)\]/;
         const kvRegex = /^\s*([a-zA-Z0-9_\-\.]+)\s*=/;
+        
+        // 获取当前文件的类型，用于在查找父类时进行过滤
+        const currentFileType = this.fileTypeManager.getFileType(document.uri);
 
         // 遍历所有可见范围（通常只有一个，但分屏或折叠时可能有多个）
         for (const range of editor.visibleRanges) {
@@ -142,13 +148,13 @@ export class OverrideDecorator implements vscode.Disposable {
                 }
 
                 if (currentSectionName) {
-                    const parentName = this.iniManager.getInheritance(currentSectionName);
+                    const parentName = this.iniManager.getInheritance(currentSectionName, currentFileType);
                     if (parentName) {
                         const kvMatch = text.match(kvRegex);
                         if (kvMatch) {
                             const key = kvMatch[1].trim();
                             // 性能瓶颈点：这里只对可见的几十行进行查找，速度极快
-                            const parentKeyInfo = this.iniManager.findKeyLocationRecursive(parentName, key);
+                            const parentKeyInfo = this.iniManager.findKeyLocationRecursive(parentName, key, currentFileType);
                             
                             if (parentKeyInfo.location) {
                                 const keyStartIndex = text.indexOf(key);

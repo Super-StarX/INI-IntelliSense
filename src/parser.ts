@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as ini from 'ini';
 import { SchemaManager } from './schema-manager';
+import { FileTypeManager } from './file-type-manager';
 
 /**
  * 定义一个INI文件解析后的结构。
@@ -31,10 +31,13 @@ export class INIManager {
     public files: Map<string, { content: string; parsed: INIFile }> = new Map();
     // Schema管理器的实例，用于获取注册表列表等规则信息。
     private schemaManager?: SchemaManager;
+    // 文件类型管理器的实例
+    private fileTypeManager?: FileTypeManager;
+    
     // 核心索引：一个从 节ID -> 注册表名 的快速查找映射。
     private sectionToRegistryMap: Map<string, string> = new Map();
     // 存储节的继承关系: 子节 -> 父节
-    private sectionInheritance: Map<string, string> = new Map();
+    private sectionInheritance: Map<string, Map<string, string>> = new Map();
     // 反向索引：从 值 -> 引用位置列表 的快速查找映射 (用于 Key=Value)。
     public valueReferences: Map<string, vscode.Location[]> = new Map();
     // 反向索引：从 父节 -> 继承位置列表 的快速查找映射 (用于 [Child]:[Parent])。
@@ -59,50 +62,12 @@ export class INIManager {
         this.inferredTypeCache.clear();
     }
 
-    /**
-     * 清理指定文件贡献的所有索引信息。
-     * 这是实现增量更新的关键步骤。
-     * @param uri 要清理的文件的URI
-     */
-    private clearIndexesForFile(uri: vscode.Uri) {
-        const fsPath = uri.fsPath;
-        // 清理值引用
-        for (const [key, locations] of this.valueReferences.entries()) {
-            const filtered = locations.filter(loc => loc.uri.fsPath !== fsPath);
-            if (filtered.length === 0) {
-                this.valueReferences.delete(key);
-            } else {
-                this.valueReferences.set(key, filtered);
-            }
-        }
-        // 清理继承引用
-        for (const [key, locations] of this.inheritanceReferences.entries()) {
-            const filtered = locations.filter(loc => loc.uri.fsPath !== fsPath);
-            if (filtered.length === 0) {
-                this.inheritanceReferences.delete(key);
-            } else {
-                this.inheritanceReferences.set(key, filtered);
-            }
-        }
-        // 清理节定义位置
-        for (const [key, locations] of this.sectionLocations.entries()) {
-            const filtered = locations.filter(loc => loc.uri.fsPath !== fsPath);
-            if (filtered.length === 0) {
-                this.sectionLocations.delete(key);
-            } else {
-                this.sectionLocations.set(key, filtered);
-            }
-        }
-        // 对于直接映射的索引，需要更复杂的逻辑，因此在全量重建时处理
-        // 注意：增量更新时，sectionToRegistryMap, sectionInheritance 等需要重新构建
-    }
-    
-    /**
-     * 注入 SchemaManager 的实例。
-     * @param manager SchemaManager的实例
-     */
     setSchemaManager(manager: SchemaManager) {
         this.schemaManager = manager;
+    }
+
+    setFileTypeManager(manager: FileTypeManager) {
+        this.fileTypeManager = manager;
     }
 
     /**
@@ -236,6 +201,7 @@ export class INIManager {
         for (const [filePath, fileData] of this.files.entries()) {
             const lines = fileData.content.split(/\r?\n/);
             const fileUri = vscode.Uri.file(filePath);
+            const currentFileType = this.fileTypeManager?.getFileType(fileUri) || 'INI';
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
@@ -253,7 +219,13 @@ export class INIManager {
                     }
 
                     if (parentName) {
-                        this.sectionInheritance.set(sectionName, parentName);
+                        if (!this.sectionInheritance.has(currentFileType)) {
+                            this.sectionInheritance.set(currentFileType, new Map());
+                        }
+                        this.sectionInheritance.get(currentFileType)!.set(sectionName, parentName);
+
+                        // inheritanceReferences 用于"查找所有引用"，这个依然可以是全局的，或者你也想隔离引用查找？
+                        // 通常引用查找是希望全局的，但继承逻辑必须隔离。这里我们只改了 inheritance 存储。
                         const locations = this.inheritanceReferences.get(parentName) || [];
                         const parentStartIndex = line.lastIndexOf(parentName);
                         if (parentStartIndex > -1) {
@@ -292,16 +264,29 @@ export class INIManager {
     /**
      * 在所有文件中查找一个节的所有定义片段。
      * @param name 节名
+     * @param filterFileType (可选) 过滤特定的文件类型。如果为 'INI' 或未定义，则搜索所有文件。
+     *                       如果为特定类型（如 'rules'），则只返回属于该类型文件的定义。
      * @returns 包含所有定义了该节的文件信息的数组
      */
-    findSection(name: string): { file: string; content: string }[] {
+    findSection(name: string, filterFileType?: string): { file: string; content: string }[] {
         const results: { file: string; content: string }[] = [];
         const locations = this.sectionLocations.get(name) || [];
 
         for (const location of locations) {
-            const fileData = this.files.get(location.uri.fsPath);
+            const filePath = location.uri.fsPath;
+            
+            // 文件类型隔离逻辑：
+            // 如果指定了过滤类型，且该类型不是通用的 'INI'，则只允许匹配同类型的文件。
+            if (filterFileType && filterFileType !== 'INI' && this.fileTypeManager) {
+                const currentFileCategory = this.fileTypeManager.getFileType(location.uri);
+                if (currentFileCategory !== filterFileType) {
+                    continue;
+                }
+            }
+
+            const fileData = this.files.get(filePath);
             if (fileData) {
-                results.push({ file: location.uri.fsPath, content: fileData.content });
+                results.push({ file: filePath, content: fileData.content });
             }
         }
         return results;
@@ -378,10 +363,12 @@ export class INIManager {
      * 在整个工作区中查找特定节内某个键的首次出现位置和行文本。
      * @param sectionName 要搜索的节名
      * @param keyName 要查找的键名
+     * @param contextFileType (可选) 上下文文件类型，用于隔离搜索范围
      * @returns 包含位置和行文本的对象，如果未找到则返回 null
      */
-    public findKeyLocation(sectionName: string, keyName: string, sectionData?: any): { location: vscode.Location; lineText: string } | null {
-        const sectionInfos = this.findSection(sectionName);
+    public findKeyLocation(sectionName: string, keyName: string, contextFileType?: string): { location: vscode.Location; lineText: string } | null {
+        // 使用带有类型过滤的 findSection
+        const sectionInfos = this.findSection(sectionName, contextFileType);
         if (sectionInfos.length === 0) {
             return null;
         }
@@ -424,11 +411,13 @@ export class INIManager {
      * 递归地向上查找一个键在实例继承链中的首次定义位置。
      * @param sectionName 起始节名
      * @param keyName 要查找的键名
+     * @param contextFileType (可选) 当前上下文的文件类型，用于继承隔离
      * @returns 包含最终位置、行文本和定义节名的对象
      */
     public findKeyLocationRecursive(
         sectionName: string, 
-        keyName: string
+        keyName: string,
+        contextFileType?: string
     ): { location: vscode.Location | null; lineText: string | null, definer: string | null } {
         
         let currentSection: string | null = sectionName;
@@ -437,7 +426,8 @@ export class INIManager {
         while (currentSection && !visited.has(currentSection)) {
             visited.add(currentSection);
 
-            const result = this.findKeyLocation(currentSection, keyName);
+            // 在查找键的位置时，传入上下文文件类型
+            const result = this.findKeyLocation(currentSection, keyName, contextFileType);
             if (result) {
                 return { ...result, definer: currentSection };
             }
@@ -449,10 +439,7 @@ export class INIManager {
     }
 
     /**
-     * 根据节名推断其类型，采用多级回退策略（直接匹配 -> 注册表 -> 引用推断）。
-     * @param sectionName 要推断的节名
-     * @param visited 用于防止在递归推断中出现无限循环
-     * @returns 推断出的类型名，如果无法推断则返回节名本身
+     * 根据节名推断其类型。
      */
     public getTypeForSection(sectionName: string, visited: Set<string> = new Set()): string {
         if (!this.schemaManager) {return sectionName;}
@@ -485,7 +472,7 @@ export class INIManager {
                 let valueType: string | undefined;
                 for (const [k, v] of allKeys.entries()) {
                     if (k.toLowerCase() === key.toLowerCase()) {
-                        valueType = v;
+                        valueType = v.type; // 注意：这里v变成了对象，取type属性
                         break;
                     }
                 }
@@ -502,11 +489,14 @@ export class INIManager {
 
     /**
      * 获取指定节的父节名称。
+     * 现在需要传入 contextFileType 来确定在哪个继承上下文中查找。
      * @param sectionName 子节的名称
+     * @param fileType 当前上下文的文件类型
      * @returns 父节的名称，如果没有则返回 undefined
      */
-    public getInheritance(sectionName: string): string | undefined {
-        return this.sectionInheritance.get(sectionName);
+    public getInheritance(sectionName: string, fileType: string = 'INI'): string | undefined {
+        const typeMap = this.sectionInheritance.get(fileType);
+        return typeMap ? typeMap.get(sectionName) : undefined;
     }
     
     /**
@@ -541,8 +531,7 @@ export class INIManager {
 
     /**
      * 获取指定节的解析数据。
-     * @param sectionName 节名
-     * @returns 该节下的键值对对象, 或 undefined
+     * 注意：此方法返回的是简单的 key-value 对象，不包含复杂的继承或类型过滤。
      */
     public getSectionData(sectionName: string): { [key: string]: any } | undefined {
         for (const file of this.files.values()) {

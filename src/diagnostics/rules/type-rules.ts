@@ -115,7 +115,8 @@ const checkKeyValueTypes: ValidationRule = (context: RuleContext): IniDiagnostic
     let valueType: string | undefined;
     for (const [k, v] of currentSection.keys.entries()) {
         if (k.toLowerCase() === key.toLowerCase()) {
-            valueType = v;
+            const propDef = v as any; 
+            valueType = propDef.type || (typeof propDef === 'string' ? propDef : 'string');
             break;
         }
     }
