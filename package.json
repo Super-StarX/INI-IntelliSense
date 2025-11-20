@@ -208,18 +208,28 @@
         },
         "ra2-ini-intellisense.indexing.includePatterns": {
           "type": "array",
-          "default": [
-            "rules*.ini",
-            "art*.ini",
-            "ai*.ini",
-            "sound*.ini",
-            "eva*.ini",
-            "theme*.ini",
-            "ui*.ini"
-          ],
+          "default": [],
           "description": "%configuration.properties.indexing.includePatterns.description%",
           "items": {
             "type": "string"
+          }
+        },
+        "ra2-ini-intellisense.indexing.fileCategories": {
+          "type": "object",
+          "default": {
+            "rules": ["rules*.ini"],
+            "art": ["art*.ini"],
+            "sound": ["sound*.ini"],
+            "ui": ["ui*.ini"],
+            "theme": ["theme*.ini"],
+            "ai": ["ai*.ini"]
+          },
+          "description": "%configuration.properties.indexing.fileCategories.description%",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "ra2-ini-intellisense.indexing.excludePatterns": {

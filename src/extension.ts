@@ -17,6 +17,7 @@ import { registerRegisterIdCommand } from './refactoring/register-id';
 import { registerExtractSuperclassCommand } from './refactoring/extract-superclass';
 import { registerFormattingCommands } from './formatting/formatter';
 import { DictionaryService } from './dictionary-service';
+import { FileTypeManager } from './file-type-manager';
 
 let diagnostics: vscode.DiagnosticCollection;
 const LANGUAGE_ID = 'ra2-ini';
@@ -36,6 +37,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	const schemaManager = new SchemaManager();
 	iniManager.setSchemaManager(schemaManager);
 	const diagnosticEngine = new DiagnosticEngine();
+    const fileTypeManager = new FileTypeManager();
 	let isIndexing = false; // 跟踪是否正在进行索引
     let isDiagnosing = false; // 跟踪是否正在进行诊断
 
@@ -52,6 +54,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	const mainStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 	mainStatusBar.command = 'ra2-ini-intellisense.showMainQuickPick';
 	context.subscriptions.push(mainStatusBar);
+
+    // 创建一个显示文件类型的状态栏项
+    const fileTypeStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+    fileTypeStatusBar.command = 'workbench.action.openSettings'; // 点击打开设置，方便修改规则
+    fileTypeStatusBar.tooltip = "Current INI File Type (Click to Configure)";
+    context.subscriptions.push(fileTypeStatusBar);
 
 	diagnostics = vscode.languages.createDiagnosticCollection('ini');
 	const iniValidator = new INIValidatorExt(diagnostics);
@@ -89,10 +97,13 @@ export async function activate(context: vscode.ExtensionContext) {
 			const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
 			const includePatterns = config.get<string[]>('indexing.includePatterns', []);
 			const excludePatterns = config.get<string[]>('indexing.excludePatterns', []);
+            // 合并旧的 includePatterns 和新的 fileCategories 中的模式
+            const categoryPatterns = fileTypeManager.getAllCategoryPatterns();
+            const combinedIncludePatterns = Array.from(new Set([...includePatterns, ...categoryPatterns]));
 			
             const projectRoot = getProjectRoot();
 
-			if (!projectRoot || includePatterns.length === 0) {
+			if (!projectRoot || combinedIncludePatterns.length === 0) {
 				// 如果既没配置路径，也没打开文件夹，或者没有包含模式，则无法索引
 				console.log('INI IntelliSense: 未找到有效项目根目录或包含模式，跳过文件索引。');
 				await iniManager.indexFiles([]);
@@ -101,7 +112,8 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
             
             const searchRoot = vscode.Uri.file(projectRoot);
-			const includePattern = new vscode.RelativePattern(searchRoot, `{${includePatterns.join(',')}}`);
+            // 使用合并后的模式进行搜索
+			const includePattern = new vscode.RelativePattern(searchRoot, `{${combinedIncludePatterns.join(',')}}`);
 			const excludePattern = excludePatterns.length > 0 ? new vscode.RelativePattern(searchRoot, `{${excludePatterns.join(',')}}`) : null;
 			
 			const iniFiles = await vscode.workspace.findFiles(includePattern, excludePattern);
@@ -115,6 +127,17 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 	}
 	
+    // 更新文件类型状态栏的辅助函数
+    function updateFileTypeStatus(editor: vscode.TextEditor | undefined) {
+        if (editor && editor.document.languageId === LANGUAGE_ID) {
+            const type = fileTypeManager.getFileType(editor.document.uri);
+            fileTypeStatusBar.text = `INI Type: ${type}`;
+            fileTypeStatusBar.show();
+        } else {
+            fileTypeStatusBar.hide();
+        }
+    }
+
 	function updateMainStatus() {
 		if (isIndexing) {
 			mainStatusBar.text = `$(sync~spin) INI: ${localize('statusbar.indexing', 'Indexing...')}`;
@@ -315,6 +338,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	// 立即更新一次UI状态，显示初始状态
 	updateMainStatus();
+    updateFileTypeStatus(vscode.window.activeTextEditor);
+
+    // 监听活动编辑器变化，更新文件类型状态栏
+    context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor => {
+        updateFileTypeStatus(editor);
+    }));
+
 	// 开始加载Schema和索引文件，但不阻塞激活流程
 	loadSchemaFromConfiguration().then(() => {
 		overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
@@ -374,9 +404,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
 		if (e.affectsConfiguration('ra2-ini-intellisense')) {
+            if (e.affectsConfiguration('ra2-ini-intellisense.indexing')) {
+                fileTypeManager.reloadConfig(); // 重新加载文件分类配置
+            }
+
 			// 配置变更后，重新加载 schema 并触发重新索引
 			loadSchemaFromConfiguration().then(() => {
 				updateMainStatus();
+                updateFileTypeStatus(vscode.window.activeTextEditor);
 				if (e.affectsConfiguration('ra2-ini-intellisense.codeLens.enabled')) {
 					updateCodeLensProvider();
 				}
@@ -397,13 +432,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	const onFileChange = async (uri: vscode.Uri) => {
 		console.log(`INI 文件变更: ${uri.fsPath}, 正在增量更新索引...`);
 		await iniManager.updateFile(uri);
-        vscode.window.visibleTextEditors.forEach(editor => {
-            if (editor.document.uri.toString() === uri.toString() && editor.document.languageId === LANGUAGE_ID) {
-				triggerUpdateDiagnostics(editor.document);
-				overrideDecorator.triggerUpdateDecorations(editor);
-            }
-        });
-        
+		vscode.workspace.textDocuments.forEach(doc => {
+			if (doc.languageId === LANGUAGE_ID) {
+				triggerUpdateDiagnostics(doc);
+				overrideDecorator.triggerUpdateDecorations(doc.uri);
+			}
+		});
 		outlineProvider.refresh();
 	};
 
@@ -447,6 +481,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
 		outputChannel.appendLine(localize('debug.context.title', '--- Context Info ---'));
 		outputChannel.appendLine(localize('debug.context.file', 'File: {0}', document.uri.fsPath));
+        // 增加文件类型调试信息
+        outputChannel.appendLine(`File Type: ${fileTypeManager.getFileType(document.uri)}`);
 		outputChannel.appendLine(localize('debug.context.position', 'Cursor Position: Line {0}, Character {1}\n', position.line + 1, position.character + 1));
 
 		let currentSectionName: string | null = null;
