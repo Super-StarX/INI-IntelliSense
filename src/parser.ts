@@ -173,13 +173,10 @@ export class INIManager {
                     let value = trimmedLine.split(';')[0].trim();
                     if (!value) {continue;}
 
+                    // 只要有等号，就取等号右边的值作为 ID。无论左边是数字、+、还是任意字符串，都忽略。
                     const equalsIndex = value.indexOf('=');
                     if (equalsIndex !== -1) {
-                         // This handles lines like `0=ID` in registry lists
-                        const keyPart = value.substring(0, equalsIndex).trim();
-                        if (/^\d+$/.test(keyPart)) {
-                             value = value.substring(equalsIndex + 1).trim();
-                        }
+                        value = value.substring(equalsIndex + 1).trim();
                     }
                     
                     if (value) {
