@@ -57,7 +57,48 @@ const checkEmptyValue: ValidationRule = (context: RuleContext): IniDiagnostic[] 
     return [];
 };
 
+const checkDuplicateRegistryKey: ValidationRule = (context: RuleContext): IniDiagnostic[] => {
+    const { codePart, currentSection, schemaManager, seenRegistryKeys, lineNumber } = context;
+
+    if (!currentSection.name) { return []; }
+
+    // 检查该节是否是一个“ID列表注册表”（如 BuildingTypes）
+    if (!schemaManager.getIdListRegistryNames().has(currentSection.name)) {
+        return [];
+    }
+
+    // 匹配 Key=Value 结构
+    const kvMatch = codePart.match(/^\s*([^;=\s][^=]*?)\s*=/);
+    if (kvMatch) {
+        const key = kvMatch[1].trim();
+
+        // Ares 的 "+" 键允许重复，不做检查
+        if (key === '+') {
+            return [];
+        }
+
+        // 检查重复
+        if (seenRegistryKeys.has(key)) {
+            const keyIndex = codePart.indexOf(key);
+            const range = new vscode.Range(lineNumber, keyIndex, lineNumber, keyIndex + key.length);
+            
+            return [new IniDiagnostic(
+                range,
+                localize('diag.logic.duplicateRegistryKey', "Duplicate registry key '{0}'. This will overwrite the previous entry.", key),
+                vscode.DiagnosticSeverity.Warning,
+                ErrorCode.LOGIC_DUPLICATE_REGISTRY_KEY
+            )];
+        }
+
+        // 6. 记录该键
+        seenRegistryKeys.add(key);
+    }
+
+    return [];
+};
+
 export const logicRules: ValidationRule[] = [
     checkUnregisteredSection,
     checkEmptyValue,
+    checkDuplicateRegistryKey,
 ];

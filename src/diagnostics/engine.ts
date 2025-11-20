@@ -57,6 +57,7 @@ export class DiagnosticEngine {
         let currentSectionName: string | null = null;
         let currentTypeName: string | null = null;
         let currentKeys: Map<string, any> | null = null;
+        let currentSeenRegistryKeys = new Set<string>();
 
         if (startLine > 0) {
             for (let i = startLine - 1; i >= 0; i--) {
@@ -83,6 +84,7 @@ export class DiagnosticEngine {
                 currentSectionName = sectionMatch[1].trim();
                 currentTypeName = context.iniManager.getTypeForSection(currentSectionName);
                 currentKeys = currentTypeName ? context.schemaManager.getAllKeysForType(currentTypeName) : null;
+                currentSeenRegistryKeys.clear();
             }
 
             const lineContext = {
@@ -95,7 +97,8 @@ export class DiagnosticEngine {
                     name: currentSectionName,
                     typeName: currentTypeName,
                     keys: currentKeys
-                }
+                },
+                seenRegistryKeys: currentSeenRegistryKeys
             };
             
             for (const rule of this.rules) {

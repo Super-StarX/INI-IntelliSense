@@ -16,6 +16,7 @@ export interface RuleContext extends DiagnosticContext {
         typeName: string | null;
         keys: Map<string, any> | null;
     };
+    seenRegistryKeys: Set<string>;
 }
 
 /**
