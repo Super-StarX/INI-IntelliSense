@@ -4,9 +4,24 @@ import { ErrorCode } from '../error-codes';
 import { RuleContext, ValidationRule } from '../rules';
 import { localize } from '../../i18n';
 
+// 辅助函数：检查规则是否被禁用 (severity === null)
+function isRuleEnabled(context: RuleContext, code: ErrorCode): boolean {
+    const override = context.severityOverrides.get(code);
+    // 如果 override 明确为 null，说明被禁用（无论是通过 severity 配置还是旧开关转换而来）
+    if (override === null) {
+        return false;
+    }
+    // 还要检查旧的 disable 数组
+    if (context.disabledErrorCodes.has(code)) {
+        return false;
+    }
+    return true;
+}
+
 const checkLeadingWhitespace: ValidationRule = (context: RuleContext): IniDiagnostic[] => {
-    const { line, lineNumber, config } = context;
-    if (!config.get<boolean>('leadingWhitespace', true) || line.isEmptyOrWhitespace) {
+    const { line, lineNumber } = context;
+    
+    if (!isRuleEnabled(context, ErrorCode.STYLE_LEADING_WHITESPACE) || line.isEmptyOrWhitespace) {
         return [];
     }
 
@@ -23,11 +38,10 @@ const checkLeadingWhitespace: ValidationRule = (context: RuleContext): IniDiagno
 };
 
 const checkSpaceAroundEquals: ValidationRule = (context: RuleContext): IniDiagnostic[] => {
-    const { codePart, lineNumber, config } = context;
+    const { codePart, lineNumber } = context;
     const diagnostics: IniDiagnostic[] = [];
 
-    // 检查等号前的空格，此项检查不受值是否为空的影响
-    if (config.get<boolean>('spaceBeforeEquals', true)) {
+    if (isRuleEnabled(context, ErrorCode.STYLE_SPACE_BEFORE_EQUALS)) {
         const equalsLeft = codePart.match(/(\s+)=/);
         if (equalsLeft) {
             const start = codePart.indexOf(equalsLeft[0]);
@@ -40,18 +54,13 @@ const checkSpaceAroundEquals: ValidationRule = (context: RuleContext): IniDiagno
         }
     }
 
-    // 检查等号后的空格
-    if (config.get<boolean>('spaceAfterEquals', true)) {
+    if (isRuleEnabled(context, ErrorCode.STYLE_SPACE_AFTER_EQUALS)) {
         const equalsIndex = codePart.indexOf('=');
         if (equalsIndex !== -1) {
             const valuePart = codePart.substring(equalsIndex + 1);
-
-            // 如果值部分在去除空格后为空，则不报告“等号后有空格”的风格问题。
-            // 这将优先权让给 LOGIC_EMPTY_VALUE 规则。
             if (valuePart.trim() === '') {
-                return diagnostics; // 提前返回，不检查等号后的空格
+                return diagnostics;
             }
-            
             const equalsRight = valuePart.match(/^\s+/);
             if (equalsRight) {
                 const start = equalsIndex + 1;
@@ -77,8 +86,11 @@ const checkCommentSpacing: ValidationRule = (context: RuleContext): IniDiagnosti
     const diagnostics: IniDiagnostic[] = [];
     const commentStartIndex = codePart.length;
 
+    // 注意：spacesBeforeComment 是一个数值配置，不是开关，所以这里保留 config 读取
     const spacesBeforeComment = config.get<number | null>('spacesBeforeComment', 1);
-    if (spacesBeforeComment !== null && codePart.trim().length > 0) {
+    if (isRuleEnabled(context, ErrorCode.STYLE_INCORRECT_SPACES_BEFORE_COMMENT) && 
+        spacesBeforeComment !== null && codePart.trim().length > 0) {
+        
         const trailingSpacesMatch = codePart.match(/(\s+)$/);
         const numSpaces = trailingSpacesMatch ? trailingSpacesMatch[1].length : 0;
         
@@ -92,7 +104,7 @@ const checkCommentSpacing: ValidationRule = (context: RuleContext): IniDiagnosti
         }
     }
 
-    if (config.get<boolean>('spaceAfterComment', true)) {
+    if (isRuleEnabled(context, ErrorCode.STYLE_MISSING_SPACE_AFTER_COMMENT)) {
         if (commentPart.length > 1 && commentPart.charAt(1) !== ' ') {
             diagnostics.push(new IniDiagnostic(
                 new vscode.Range(lineNumber, commentStartIndex, lineNumber, commentStartIndex + 1),

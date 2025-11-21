@@ -579,6 +579,18 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }
 
+            const applyLegacySwitch = (configKey: string, errorCode: string) => {
+                if (config.get<boolean>(configKey) === false) {
+                    severityOverrides.set(errorCode, null);
+                }
+            };
+
+            // 映射旧的布尔配置到新的 Severity 系统
+            applyLegacySwitch('leadingWhitespace', 'STYLE-101');
+            applyLegacySwitch('spaceBeforeEquals', 'STYLE-102');
+            applyLegacySwitch('spaceAfterEquals', 'STYLE-103');
+            applyLegacySwitch('spaceAfterComment', 'STYLE-105');
+			
             const context = {
                 document,
                 schemaManager,
