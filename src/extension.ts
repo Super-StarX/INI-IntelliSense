@@ -556,13 +556,37 @@ export async function activate(context: vscode.ExtensionContext) {
             const rawDisableConfig = config.get<string[]>('disable', []);
             const disabledErrorCodes = new Set<string>(rawDisableConfig.map(c => String(c)));
 
+            // 读取新配置 severity
+            const severityConfig = config.get<{[key: string]: string}>('severity', {});
+            const severityOverrides = new Map<string, vscode.DiagnosticSeverity | null>();
+            
+            // 简单的辅助函数放在这里或者外部均可
+            const parseSeverity = (level: string): vscode.DiagnosticSeverity | null => {
+                switch (level.toLowerCase()) {
+                    case 'error': return vscode.DiagnosticSeverity.Error;
+                    case 'warning': return vscode.DiagnosticSeverity.Warning;
+                    case 'information': return vscode.DiagnosticSeverity.Information;
+                    case 'hint': return vscode.DiagnosticSeverity.Hint;
+                    case 'none': return null;
+                    default: return null; // 无法识别的配置，不做处理（保持原样）
+                }
+            };
+
+            for (const [code, level] of Object.entries(severityConfig)) {
+                const severity = parseSeverity(level);
+                if (severity !== undefined) { // 只存入有效值（包含 null）
+                     severityOverrides.set(code, severity);
+                }
+            }
+
             const context = {
                 document,
                 schemaManager,
                 iniManager,
                 config,
                 disabledErrorCodes,
-                outputChannel // 传递输出通道
+                severityOverrides,
+                outputChannel
             };
 
             await new Promise(resolve => setTimeout(resolve, 0));

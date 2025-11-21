@@ -29,7 +29,7 @@
     "configuration.properties.codeLens.enabled.description": "是否在节 (Section) 上方显示代码透镜 (CodeLens), 以展示其被引用的次数。",
     "configuration.properties.decorations.overrideIndicator.enabled.description": "启用或禁用继承覆盖指示器 (在行号旁边的图标和斜体键名)。",
     "configuration.properties.diagnostics.enabled.description": "启用或禁用所有内置的诊断检查。",
-    "configuration.properties.diagnostics.disable.description": "一个包含要禁用的特定错误码的列表 (例如, [\"STYLE-101\", \"TYPE-201\"])。",
+    "configuration.properties.diagnostics.severity.description": "自定义特定诊断规则的报错等级。键为错误码（如 'STYLE-101'），值为 'Error', 'Warning', 'Information', 'Hint', 或 'None' 之一。",
     "configuration.properties.diagnostics.spaceBeforeEquals.description": "是否检查并警告等号 (=) 左侧的多余空格。",
     "configuration.properties.diagnostics.spaceAfterEquals.description": "是否检查并警告等号 (=) 右侧的多余空格。",
     "configuration.properties.diagnostics.leadingWhitespace.description": "是否检查并警告行首的多余空格。",

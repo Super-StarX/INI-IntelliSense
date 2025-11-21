@@ -273,12 +273,13 @@
           "default": true,
           "description": "%configuration.properties.diagnostics.enabled.description%"
         },
-        "ra2-ini-intellisense.diagnostics.disable": {
-          "type": "array",
-          "default": [],
-          "description": "%configuration.properties.diagnostics.disable.description%",
-          "items": {
-            "type": "string"
+        "ra2-ini-intellisense.diagnostics.severity": {
+          "type": "object",
+          "default": {},
+          "description": "%configuration.properties.diagnostics.severity.description%",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["Error", "Warning", "Information", "Hint", "None"]
           }
         },
         "ra2-ini-intellisense.diagnostics.spaceBeforeEquals": {

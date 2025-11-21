@@ -62,6 +62,30 @@ To get full IntelliSense and diagnostics, you need to tell the extension where y
 
 ---
 
+## Diagnostic Error Codes
+
+You can use these codes in `ra2-ini-intellisense.diagnostics.severity` to customize the error level (Error, Warning, Information, Hint, None) for each rule.
+
+| Code | Category | Description |
+| :--- | :--- | :--- |
+| **STYLE-101** | Style | Unnecessary leading whitespace at the beginning of the line. |
+| **STYLE-102** | Style | Extra spaces before the `=` sign. |
+| **STYLE-103** | Style | Extra spaces after the `=` sign. |
+| **STYLE-104** | Style | Incorrect number of spaces before a comment (`;`). |
+| **STYLE-105** | Style | Missing space after a comment (`;`). |
+| | | |
+| **TYPE-201** | Type | Invalid integer value. |
+| **TYPE-202** | Type | Invalid floating-point value. |
+| **TYPE-203** | Type | Number out of range (min/max). |
+| **TYPE-204** | Type | Value not in allowed list (Enumeration). |
+| **TYPE-205** | Type | Value does not match required prefix. |
+| **TYPE-206** | Type | Value does not match required suffix. |
+| **TYPE-207** | Type | List has invalid length (too short/long). |
+| | | |
+| **LOGIC-301** | Logic | Reference to an undefined section. |
+| **LOGIC-303** | Logic | Key has an empty value. |
+| **LOGIC-304** | Logic | Duplicate key in a registry list (e.g., `0=A`, `0=B`). |
+
 ## Settings
 You can configure this extension in detail in your VS Code `settings.json` file (`Ctrl+,`).
 

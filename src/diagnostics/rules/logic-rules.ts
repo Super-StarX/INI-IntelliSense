@@ -85,7 +85,7 @@ const checkDuplicateRegistryKey: ValidationRule = (context: RuleContext): IniDia
             return [new IniDiagnostic(
                 range,
                 localize('diag.logic.duplicateRegistryKey', "Duplicate registry key '{0}'. This will overwrite the previous entry.", key),
-                vscode.DiagnosticSeverity.Warning,
+                vscode.DiagnosticSeverity.Error,
                 ErrorCode.LOGIC_DUPLICATE_REGISTRY_KEY
             )];
         }
