@@ -1,5 +1,5 @@
 {
-    "scopeName": "source.ini",
+    "scopeName": "source.ra2-ini",
     "patterns": [
         { "include": "#comment" },
         { "include": "#section" },

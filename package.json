@@ -12,6 +12,9 @@
   "engines": {
     "vscode": "^1.96.0"
   },
+  "activationEvents": [
+    "onLanguage:ra2-ini"
+  ],
   "categories": [
     "Other"
   ],
@@ -21,7 +24,7 @@
       {
         "id": "ra2-ini",
         "aliases": [
-          "INI",
+          "INI (RA2)",
           "ini"
         ],
         "extensions": [
@@ -33,7 +36,7 @@
     "grammars": [
       {
         "language": "ra2-ini",
-        "scopeName": "source.ini",
+        "scopeName": "source.ra2-ini",
         "path": "./syntaxes/ini.tmLanguage.json"
       }
     ],
@@ -60,16 +63,6 @@
         ],
         "tokenModifiers": []
       }
-    },
-    "themes": [
-      {
-        "label": "RA2 INI Dark Theme",
-        "uiTheme": "vs-dark",
-        "path": "./themes/color-theme.json"
-      }
-    ],
-    "files.associations": {
-      "*.ini": "ra2-ini"
     },
     "viewsContainers": {
       "activitybar": [
@@ -217,12 +210,24 @@
         "ra2-ini-intellisense.indexing.fileCategories": {
           "type": "object",
           "default": {
-            "rules": ["rules*.ini"],
-            "art": ["art*.ini"],
-            "sound": ["sound*.ini"],
-            "ui": ["ui*.ini"],
-            "theme": ["theme*.ini"],
-            "ai": ["ai*.ini"]
+            "rules": [
+              "rules*.ini"
+            ],
+            "art": [
+              "art*.ini"
+            ],
+            "sound": [
+              "sound*.ini"
+            ],
+            "ui": [
+              "ui*.ini"
+            ],
+            "theme": [
+              "theme*.ini"
+            ],
+            "ai": [
+              "ai*.ini"
+            ]
           },
           "description": "%configuration.properties.indexing.fileCategories.description%",
           "additionalProperties": {
@@ -313,8 +318,28 @@
       }
     },
     "configurationDefaults": {
+      "files.associations": {
+        "*.ini": "ra2-ini"
+      },
       "[ra2-ini]": {
+        "editor.semanticHighlighting.enabled": true,
         "editor.definitionLinkOpensInPeek": false
+      },
+      "editor.semanticTokenColorCustomizations": {
+        "enabled": true,
+        "rules": {
+          "sectionBracket": "#FFD700",
+          "sectionContent": "#fffab2",
+          "sectionInherit": "#fffab29a",
+          "keyPart1": "#50b0ff",
+          "keyPart2": "#509cff",
+          "keyPart3": "#5079ff",
+          "operator": "#ffffff",
+          "value": "#82c7ff",
+          "valueComma": "#ffd000",
+          "valueString": "#a76c00",
+          "comment": "#808080"
+        }
       }
     }
   },
