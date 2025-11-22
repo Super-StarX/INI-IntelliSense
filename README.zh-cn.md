@@ -4,8 +4,6 @@
 
 **INI IntelliSense** 是一个为《命令与征服: 红色警戒2》Mod开发量身打造的、功能强大的 Visual Studio Code 扩展。它旨在通过提供现代化的代码编辑体验，如动态语法高亮、深度智能感知、高级诊断和直观的继承关系可视化，来革命性地提升您在 `.ini` 配置文件上的工作效率和代码质量。
 
-**INI IntelliSense** is a powerful, feature-rich Visual Studio Code extension tailor-made for *Command & Conquer: Red Alert 2* mod development. It aims to revolutionize your workflow on `.ini` configuration files by providing a modern coding experience, including dynamic syntax highlighting, deep language intelligence, advanced diagnostics, and intuitive inheritance visualization.
-
 ---
 
 ## 主要功能 (Key Features)
@@ -22,7 +20,8 @@
     - **键 (Keys)**: 根据当前节的类型（包含继承），智能提示所有可用的键。
     - **值 (Values)**: 为布尔值 (`yes`/`no`)、颜色、以及所有在 `[Registries]` 中注册的ID（如单位、建筑、武器名等）提供补全。
 - **悬停信息 (Hover Information)**:
-    - **类型提示**: 悬停在键上时，显示其在 Schema 中定义的类型 (e.g., `TechLevel: int`)。
+    - **类型与来源**: 悬停在键上时，显示其在 Schema 中定义的类型 (e.g., `TechLevel: int`) 以及**来源**（如 `Ares`, `Phobos` 或原版），让您明确知道该功能来自哪个平台。
+    - **CSF 预览**: 如果一个值引用了 CSF 字符串（例如 `UIName=Name:Apoc`），悬停时将直接显示对应的中文/英文文本（如“天启坦克”）。
     - **继承覆盖详情**: 当一个键覆盖了父节的值时，悬停信息会明确展示**被覆盖的父节名称、所在文件、行号以及旧的值**，并提供一键跳转链接。
 - **跳转到定义 (Go to Definition)**:
     - 按住 `Ctrl` 并单击一个值（如单位ID），即可跨文件跳转到该单位的 `[Section]` 定义处。
@@ -40,9 +39,10 @@
 - **查找所有引用 (Find All References)**: 右键点击一个节名，即可找到所有引用或继承它的地方。
 
 ### 5. 其他实用功能 (More Handy Features)
+- **CSF 文件原生支持**: 内置 `.csf` 二进制文件解析器，自动索引工作区内的字符串表，为悬停预览和补全提供数据支持。
 - **颜色拾取器**: 为 `R,G,B` 格式的颜色值提供可视化颜色选择器和预览。
 - **INI 项目浏览器**: 在活动栏提供一个专属视图，以树状结构清晰地展示您工作区内所有被索引的 INI 文件及其内部结构（节、键），方便快速导航。
-- **代码折叠**: 支持按 `[Section]` 折叠代码块，让您能更专注于当前任务。
+- **代码折叠**: 支持按 `[Section]` 折叠代码块。
 - **性能优化**: 通过可配置的文件索引规则，插件只会扫描您指定的 `*.ini` 文件（默认只扫描根目录下的核心游戏文件），在大型工作区中也能保持极速响应。
 
 ---
@@ -57,10 +57,10 @@
 5. 重新加载 VS Code。
 
 ### 初始配置 (Initial Setup)
-为了获得完整的智能提示和诊断功能，您需要告诉插件您的 Schema 文件 (`INICodingCheck.ini`) 在哪里。
-1. 点击 VS Code 右下角状态栏的 `$(warning) INI Schema` 图标。
-2. 在弹出的文件选择框中，找到并选择您的 `INICodingCheck.ini` 文件。
-3. 插件会自动加载并索引文件。成功后，状态栏图标会变为 `$(check) INI Schema`。
+为了获得完整的智能提示和诊断功能，您需要配置 Schema 文件 (`INICodingCheck.ini`) 和 Mod 根目录。
+1. 插件首次激活时会自动弹出 **设置向导 (Setup Wizard)**。
+2. 您也可以点击状态栏的 `$(rocket) INI: 显示设置向导` 或使用命令重新打开它。
+3. 向导将帮助您一键下载包含最新 Ares/Phobos 支持的官方字典，并自动识别您的工作区路径。
 
 ---
 
@@ -96,7 +96,7 @@
 | **`ra2-ini-intellisense.schemaFilePath`** | INI 规则定义文件 (`INICodingCheck.ini`) 的绝对路径。这是智能感知的核心。 | `null` |
 | **`ra2-ini-intellisense.validationFolderPath`** | `INIValidator.exe` 和文件索引的根目录（通常是您的Mod根目录）。 | `null` |
 | | |
-| `ra2-ini-intellisense.indexing.includePatterns` | 一个Glob模式数组，指定需要索引的INI文件。默认只索引根目录的核心文件。 | `["rules*.ini", "art*.ini", ...]` |
+| `ra2-ini-intellisense.indexing.fileCategories` | 定义文件分类（如 Rules, Art）及其对应的 Glob 模式。用于提供上下文感知的智能提示。 | `{ "rules": ["rules*.ini"], ... }` |
 | `ra2-ini-intellisense.indexing.excludePatterns` | 一个Glob模式数组，用于从已包含的文件中排除特定文件或目录。 | `[]` |
 | | |
 | `ra2-ini-intellisense.decorations.overrideIndicator.enabled` | 是否启用继承覆盖指示器（行号旁的箭头图标）。 | `true` |
@@ -104,11 +104,8 @@
 | | |
 | `ra2-ini-intellisense.diagnostics.enabled` | 是否启用所有内置的诊断检查。 | `true` |
 | `ra2-ini-intellisense.diagnostics.disable` | 一个错误码数组，用于禁用特定的诊断检查。例如 `["STYLE-101"]`。 | `[]` |
-| `ra2-ini-intellisense.diagnostics.leadingWhitespace` | 是否检查行首多余空格。 | `true` |
-| `ra2-ini-intellisense.diagnostics.spaceBeforeEquals` | 是否检查 `=` 左侧的多余空格。 | `true` |
-| `ra2-ini-intellisense.diagnostics.spaceAfterEquals` | 是否检查 `=` 右侧的多余空格。 | `true` |
+| `ra2-ini-intellisense.diagnostics.severity` | 自定义特定错误码的等级（如 `{"STYLE-101": "Information"}`）。 | `{}` |
 | `ra2-ini-intellisense.diagnostics.spacesBeforeComment` | 注释符号 `;` 前应有的空格数。设为 `null` 可禁用。 | `1` |
-| `ra2-ini-intellisense.diagnostics.spaceAfterComment` | 是否检查 `;` 后缺少空格。 | `true` |
 | | |
 | `ra2-ini-intellisense.exePath` | `INIValidator.exe` 的绝对路径。 | `null` |
 | `ra2-ini-intellisense.validationFiles` | `INIValidator.exe` 需要校验的文件列表。 | `{...}` |
@@ -119,4 +116,3 @@
 
 ## 📄 许可证 (License)
 本项目采用 MIT 许可证。详情请查看 `LICENSE` 文件。
-This project is licensed under the MIT License. See the `LICENSE` file for details.

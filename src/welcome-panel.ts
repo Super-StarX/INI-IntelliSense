@@ -60,7 +60,6 @@ export class WelcomePanel {
                 this.selectModPath(message.useWorkspaceFolder);
                 return;
             case 'downloadDictionary':
-                // 在这里调用公共服务
                 const service = new DictionaryService(this._context);
                 try {
                     const path = await service.downloadAndConfigure();
@@ -81,9 +80,22 @@ export class WelcomePanel {
             case 'updateConfig': {
                 const { key, value } = message;
                 let valueToUpdate: any = value;
-                if (key === 'indexing.includePatterns') {
+                
+                // 如果是 fileCategories，尝试解析 JSON
+                if (key === 'indexing.fileCategories') {
+                    try {
+                        valueToUpdate = JSON.parse(value);
+                    } catch (e) {
+                        // 如果 JSON 解析失败，暂时不更新或提示错误（Webview端已有校验更好，这里做兜底）
+                        vscode.window.showErrorMessage("Invalid JSON format for File Categories.");
+                        return;
+                    }
+                }
+                // 旧逻辑兼容：如果是数组形式的字符串
+                else if (key === 'indexing.includePatterns') {
                     valueToUpdate = value.split('\n').map((s: string) => s.trim()).filter((s: string) => s);
                 }
+
                 await vscode.workspace.getConfiguration('ra2-ini-intellisense').update(key, valueToUpdate, vscode.ConfigurationTarget.Workspace);
                 return;
             }
@@ -94,16 +106,20 @@ export class WelcomePanel {
         const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
         const modPath = config.get<string>('validationFolderPath');
         const dictPath = config.get<string>('schemaFilePath');
-        const includePatterns = config.get<string[]>('indexing.includePatterns');
-        const defaultIncludePatterns = config.inspect<string[]>('indexing.includePatterns')?.defaultValue;
+        
+        // 获取 fileCategories 配置
+        const fileCategories = config.get('indexing.fileCategories');
+        const defaultFileCategories = config.inspect('indexing.fileCategories')?.defaultValue;
+        
+        const categoriesToShow = fileCategories || defaultFileCategories || {};
 
         this._panel.webview.postMessage({
             command: 'initialConfig',
             config: {
                 modPath: modPath || '',
                 dictPath: dictPath || '',
-                includePatterns: includePatterns ? includePatterns.join('\n') : '',
-                defaultIncludePatterns: defaultIncludePatterns ? defaultIncludePatterns.join('\n') : ''
+                // 将对象格式化为 JSON 字符串展示
+                fileCategories: JSON.stringify(categoriesToShow, null, 4)
             }
         });
     }
@@ -289,11 +305,11 @@ export class WelcomePanel {
 
                             <div id="step3" class="step-module animated" style="animation-delay: 0.9s;">
                                 <div class="step-header">
-                                    <h2 class="step-title">${localize('welcome.step3.title', '3. Configure Indexing Whitelist (Optional)')}</h2>
+                                    <h2 class="step-title">${localize('welcome.step3.title', '3. Configure File Categories (Optional)')}</h2>
                                 </div>
-                                <p class="step-description">${localize('welcome.step3.desc', 'Define which files the extension should track. You can edit the rules below (one Glob pattern per line).')}</p>
+                                <p class="step-description">${localize('welcome.step3.desc', 'Define which files the extension should track. You can edit the rules below (JSON format).')}</p>
                                 <div class="input-container">
-                                    <textarea id="indexing-patterns-input" class="config-textarea" rows="5"></textarea>
+                                    <textarea id="file-categories-input" class="config-textarea" rows="8" placeholder='{ "rules": ["rules*.ini"], "art": ["art*.ini"] }'></textarea>
                                 </div>
                                 <div class="actions">
                                     <button id="customize-indexing-btn">

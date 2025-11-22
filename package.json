@@ -199,14 +199,6 @@
           },
           "description": "%configuration.properties.validationFiles.description%"
         },
-        "ra2-ini-intellisense.indexing.includePatterns": {
-          "type": "array",
-          "default": [],
-          "description": "%configuration.properties.indexing.includePatterns.description%",
-          "items": {
-            "type": "string"
-          }
-        },
         "ra2-ini-intellisense.indexing.fileCategories": {
           "type": "object",
           "default": {

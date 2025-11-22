@@ -192,7 +192,7 @@
     "welcome.step2.button.download": "Auto-Download & Configure",
     "welcome.step2.button.local": "Use Local Dictionary...",
     "welcome.step3.title": "3. Configure Indexing Whitelist (Optional)",
-    "welcome.step3.desc": "Define which files the extension should track. You can edit the rules below (one Glob pattern per line).",
+    "welcome.step3.desc": "Define which files the extension should track. You can edit the rules below.",
     "welcome.step3.button.settings": "Edit in settings.json",
     "welcome.finishButton.text": "Finish Setup & Close"
 }

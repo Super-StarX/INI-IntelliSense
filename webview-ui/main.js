@@ -6,7 +6,7 @@
     const state = {
         modPathSet: false,
         dictionarySet: false,
-        indexingSet: false
+        categoriesSet: false
     };
 
     // 元素获取
@@ -20,7 +20,7 @@
 
     const modPathInput = document.getElementById('mod-path-input');
     const dictPathInput = document.getElementById('dict-path-input');
-    const indexingPatternsInput = document.getElementById('indexing-patterns-input');
+    const fileCategoriesInput = document.getElementById('file-categories-input');
 
     const progressNodes = {
         1: document.getElementById('progress-node-1'),
@@ -63,11 +63,13 @@
         updateProgressNode(2, state.dictionarySet);
     });
 
-    indexingPatternsInput.addEventListener('input', (e) => {
+    fileCategoriesInput.addEventListener('input', (e) => {
         const value = e.target.value;
-        vscode.postMessage({ command: 'updateConfig', key: 'indexing.includePatterns', value });
-        state.indexingSet = !!value;
-        updateProgressNode(3, state.indexingSet);
+        // 我们不实时更新 JSON，只在失焦或结束时校验和保存，或者允许用户输入非法的 JSON 只要他不提交？
+        // 为了简单，我们尝试每次输入都发消息，后端校验
+        vscode.postMessage({ command: 'updateConfig', key: 'indexing.fileCategories', value });
+        state.categoriesSet = !!value;
+        updateProgressNode(3, state.categoriesSet);
     });
 
     useWorkspaceBtn.addEventListener('click', () => {
@@ -104,7 +106,7 @@
         const message = event.data;
         switch (message.command) {
             case 'initialConfig':
-                const { modPath, dictPath, includePatterns, defaultIncludePatterns } = message.config;
+                const { modPath, dictPath, fileCategories } = message.config;
 
                 modPathInput.value = modPath;
                 state.modPathSet = !!modPath;
@@ -114,10 +116,9 @@
                 state.dictionarySet = !!dictPath;
                 updateProgressNode(2, state.dictionarySet);
 
-                const patternsToShow = includePatterns || defaultIncludePatterns;
-                indexingPatternsInput.value = patternsToShow;
-                state.indexingSet = !!patternsToShow;
-                updateProgressNode(3, state.indexingSet);
+                fileCategoriesInput.value = fileCategories;
+                state.categoriesSet = !!fileCategories;
+                updateProgressNode(3, state.categoriesSet);
 
                 checkFinishable();
                 break;

@@ -192,7 +192,7 @@
     "welcome.step2.button.download": "自动下载与配置",
     "welcome.step2.button.local": "使用本地字典...",
     "welcome.step3.title": "3. 配置检测白名单 (可选)",
-    "welcome.step3.desc": "定义插件需要关注的文件。您可以编辑下面的规则（每行一个Glob模式）。",
+    "welcome.step3.desc": "定义插件需要关注的文件。您可以编辑下面的规则。",
     "welcome.step3.button.settings": "在settings.json中编辑",
     "welcome.finishButton.text": "完成配置并关闭"
 }

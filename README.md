@@ -20,7 +20,8 @@ The core capabilities of this extension are driven by a configurable rule file (
     - **Keys**: Intelligently suggests all available keys based on the current section's type (including inheritance).
     - **Values**: Provides completion for boolean values (`yes`/`no`), colors, and all IDs registered in `[Registries]` (e.g., unit, building, weapon names).
 - **Hover Information**:
-    - **Type Hints**: Hovering over a key displays its type as defined in the schema (e.g., `TechLevel: int`).
+    - **Type & Source**: Displays the key's type (e.g., `TechLevel: int`) and its source (e.g., `Ares`, `Phobos`, or Original Game), helping you distinguish between vanilla and extension features.
+    - **CSF Preview**: If a value refers to a CSF string (e.g., `UIName=Name:Apoc`), hovering will show the actual localized text (e.g., "Apocalypse Tank").
     - **Override Details**: When a key overrides a value from a parent section, the hover information clearly shows the **overridden parent section's name, file, line number, and the old value**, with a one-click link to jump to it.
 - **Go to Definition**:
     - Hold `Ctrl` and click on a value (like a unit ID) to jump across files to that unit's `[Section]` definition.
@@ -38,9 +39,10 @@ The core capabilities of this extension are driven by a configurable rule file (
 - **Find All References**: Right-click a section name to find all places that reference or inherit from it.
 
 ### 5. More Handy Features
+- **CSF File Support**: Native support for parsing binary `.csf` string files in your workspace, powering hover previews and potential future features.
 - **Color Picker**: Provides a visual color picker and preview for `R,G,B` formatted color values.
 - **INI Project Explorer**: A dedicated view in the activity bar that clearly displays all indexed INI files and their internal structure (sections, keys) in a tree, for quick navigation.
-- **Code Folding**: Supports folding code blocks by `[Section]`, allowing you to focus on the current task.
+- **Code Folding**: Supports folding code blocks by `[Section]`.
 - **Performance Optimized**: With configurable file indexing rules, the extension only scans the `*.ini` files you specify (by default, only core game files in the root), ensuring swift response even in large workspaces.
 
 ---
@@ -55,10 +57,10 @@ The core capabilities of this extension are driven by a configurable rule file (
 5. Reload VS Code.
 
 ### Initial Setup
-To get full IntelliSense and diagnostics, you need to tell the extension where your schema file (`INICodingCheck.ini`) is located.
-1. Click the `$(warning) INI Schema` icon in the VS Code status bar (bottom-right).
-2. In the file dialog that appears, find and select your `INICodingCheck.ini` file.
-3. The extension will automatically load and index the file. Upon success, the status bar icon will change to `$(check) INI Schema`.
+To get full IntelliSense and diagnostics, you need to configure the dictionary file (`INICodingCheck.ini`) and your Mod root directory.
+1. The extension will prompt you with a **Setup Wizard** upon first activation.
+2. You can also click the `$(rocket) INI: Show Setup Guide` command or use the status bar menu to reopen the wizard.
+3. The wizard helps you download the official dictionary (with latest Ares/Phobos support) and set up your workspace paths automatically.
 
 ---
 
@@ -94,7 +96,7 @@ You can configure this extension in detail in your VS Code `settings.json` file 
 | **`ra2-ini-intellisense.schemaFilePath`** | Absolute path to the INI rule definition file (`INICodingCheck.ini`). This is the core of the IntelliSense. | `null` |
 | **`ra2-ini-intellisense.validationFolderPath`** | Root directory for `INIValidator.exe` and file indexing (usually your Mod's root directory). | `null` |
 | | |
-| `ra2-ini-intellisense.indexing.includePatterns` | An array of Glob patterns specifying which INI files to index. Defaults to core game files in the root. | `["rules*.ini", "art*.ini", ...]` |
+| `ra2-ini-intellisense.indexing.fileCategories` | Defines file categories (e.g., Rules, Art) and their corresponding Glob patterns. Used for context-aware IntelliSense. | `{ "rules": ["rules*.ini"], ... }` |
 | `ra2-ini-intellisense.indexing.excludePatterns` | An array of Glob patterns to exclude files from the included set. | `[]` |
 | | |
 | `ra2-ini-intellisense.decorations.overrideIndicator.enabled` | Enables the inheritance override indicator (arrow icon next to the line number). | `true` |
@@ -102,11 +104,8 @@ You can configure this extension in detail in your VS Code `settings.json` file 
 | | |
 | `ra2-ini-intellisense.diagnostics.enabled` | Enables all built-in diagnostic checks. | `true` |
 | `ra2-ini-intellisense.diagnostics.disable` | An array of error codes to disable specific checks, e.g., `["STYLE-101"]`. | `[]` |
-| `ra2-ini-intellisense.diagnostics.leadingWhitespace` | Checks for extraneous whitespace at the beginning of a line. | `true` |
-| `ra2-ini-intellisense.diagnostics.spaceBeforeEquals` | Checks for extraneous whitespace to the left of `=`. | `true` |
-| `ra2-ini-intellisense.diagnostics.spaceAfterEquals` | Checks for extraneous whitespace to the right of `=`. | `true` |
+| `ra2-ini-intellisense.diagnostics.severity` | Customize severity for specific error codes (e.g. `{"STYLE-101": "Information"}`). | `{}` |
 | `ra2-ini-intellisense.diagnostics.spacesBeforeComment` | The number of spaces required before a `;` comment symbol. Set to `null` to disable. | `1` |
-| `ra2-ini-intellisense.diagnostics.spaceAfterComment` | Checks for a missing space after the `;` symbol. | `true` |
 | | |
 | `ra2-ini-intellisense.exePath` | Absolute path to `INIValidator.exe`. | `null` |
 | `ra2-ini-intellisense.validationFiles` | List of files for `INIValidator.exe` to check. | `{...}` |
