@@ -17,6 +17,7 @@ import { registerExtractSuperclassCommand } from './refactoring/extract-supercla
 import { registerFormattingCommands } from './formatting/formatter';
 import { DictionaryService } from './dictionary-service';
 import { FileTypeManager } from './file-type-manager';
+import { CsfManager } from './csf-manager';
 
 const LANGUAGE_ID = 'ra2-ini';
 
@@ -28,6 +29,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	const outlineProvider = new INIOutlineProvider(context, iniManager);
 	const schemaManager = new SchemaManager();
     const fileTypeManager = new FileTypeManager();
+    const csfManager = new CsfManager();
 	iniManager.setSchemaManager(schemaManager);
     iniManager.setFileTypeManager(fileTypeManager);
 
@@ -45,7 +47,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	const overrideDecorator = new OverrideDecorator(context, iniManager, schemaManager, fileTypeManager);
 	context.subscriptions.push(overrideDecorator);
 
-    const valuePreviewDecorator = new ValuePreviewDecorator(iniManager, schemaManager);
+    const valuePreviewDecorator = new ValuePreviewDecorator(iniManager, schemaManager, csfManager);
     context.subscriptions.push(valuePreviewDecorator);
 
 	const mainStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -552,6 +554,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
                 // Hover on Key
 				const keyPart = lineText.substring(0, equalsIndex).trim();
+                const valueRaw = lineText.substring(equalsIndex + 1).split(';')[0].trim();
 				const keyRange = new vscode.Range(position.line, line.firstNonWhitespaceCharacterIndex, position.line, equalsIndex);
 
 				if (!keyRange.contains(position)) {return null;}
@@ -586,7 +589,12 @@ export async function activate(context: vscode.ExtensionContext) {
                         if (propDef.source && propDef.source !== 'INIDictionary') {
                              markdown.appendMarkdown(`\n- Source: **${propDef.source}**`);
                         }
+                        const csfEntry = csfManager.getLabel(valueRaw);
+                        if (csfEntry) {
+                            markdown.appendMarkdown(`\n\n**CSF**: ${csfEntry.value}`);
+                        }
 
+                        markdown.appendMarkdown('\n\n---\n\n');
 						markdown.appendMarkdown(localize('hover.type.belongsTo', `\n\nBelongs to type **{0}**.`, typeName));
 						hasContent = true;
 					}

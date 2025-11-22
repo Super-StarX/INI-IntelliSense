@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { INIManager } from './parser';
 import { SchemaManager } from './schema-manager';
+import { CsfManager } from './csf-manager';
 
 /**
  * 负责在编辑器中为特定类型的值（如 bool）提供可视化的行内预览。
@@ -11,9 +12,8 @@ export class ValuePreviewDecorator implements vscode.Disposable {
     private boolTrueDecoration = vscode.window.createTextEditorDecorationType({
         after: { 
             contentText: '✔', 
-            color: '#89d185',             // 亮绿色
-            backgroundColor: '#89d18515', // 极淡背景
-            border: '1px solid #89d18540',// 边框
+            color: '#8FA68F88',
+            backgroundColor: '#8FA68F15', // 背景
             margin: '0 0 0 6px'           // 间距
         },
         rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
@@ -22,10 +22,17 @@ export class ValuePreviewDecorator implements vscode.Disposable {
     private boolFalseDecoration = vscode.window.createTextEditorDecorationType({
         after: { 
             contentText: '✘', 
-            color: '#f48771',             // 亮红色
-            backgroundColor: '#f4877115', 
-            border: '1px solid #f4877140',
+            color: '#A68F8F88',
+            backgroundColor: '#A68F8F15', 
             margin: '0 0 0 6px'
+        },
+        rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
+    });
+
+    private csfPreviewDecoration = vscode.window.createTextEditorDecorationType({
+        after: { 
+            color: '#808080',             // 淡蓝色文本
+            margin: '0 0 0 8px',
         },
         rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
     });
@@ -35,11 +42,13 @@ export class ValuePreviewDecorator implements vscode.Disposable {
 
     constructor(
         private iniManager: INIManager,
-        private schemaManager: SchemaManager
+        private schemaManager: SchemaManager,
+        private csfManager: CsfManager,
     ) {
         // 装饰器本身也是一种资源，需要在销毁时释放
         this.disposables.push(this.boolTrueDecoration);
         this.disposables.push(this.boolFalseDecoration);
+        this.disposables.push(this.csfPreviewDecoration);
     }
 
     /**
@@ -66,6 +75,7 @@ export class ValuePreviewDecorator implements vscode.Disposable {
     private updateDecorations(editor: vscode.TextEditor) {
         const trueRanges: vscode.Range[] = [];
         const falseRanges: vscode.Range[] = [];
+        const csfDecorations: vscode.DecorationOptions[] = [];
         
         const document = editor.document;
         const docModel = this.iniManager.getDocument(document.uri.fsPath);
@@ -116,10 +126,27 @@ export class ValuePreviewDecorator implements vscode.Disposable {
                 if (propDef) {
                     switch (propDef.type) {
                         case 'bool':
-                            if (['yes', 'true', '1'].includes(valuePart)) {
-                                trueRanges.push(valueRange); // 使用精确范围
-                            } else if (['no', 'false', '0'].includes(valuePart)) {
+                            const firstChar = valuePart.charAt(0);
+                            if (['y', 't', '1'].includes(firstChar)) {
+                                trueRanges.push(valueRange); 
+                            } else if (['n', 'f', '0'].includes(firstChar)) {
                                 falseRanges.push(valueRange);
+                            }
+                            break;
+                        case 'csf':
+                            const csfVal = this.csfManager.getLabel(valuePart); // valuePart 已经是 lowerCase 且 trimmed
+                            if (csfVal) {
+                                // 截断过长的文本，避免干扰布局
+                                let displayText = csfVal.value.replace(/\r?\n/g, ' ');
+                                if (displayText.length > 30) {
+                                    displayText = displayText.substring(0, 27) + '...';
+                                }
+                                csfDecorations.push({
+                                    range: valueRange,
+                                    renderOptions: {
+                                        after: { contentText: `  ${displayText}` }
+                                    }
+                                });
                             }
                             break;
                     }
@@ -127,8 +154,9 @@ export class ValuePreviewDecorator implements vscode.Disposable {
             }
         }
 
-        editor.setDecorations(this.boolTrueDecoration, trueRanges);
-        editor.setDecorations(this.boolFalseDecoration, falseRanges);
+        // editor.setDecorations(this.boolTrueDecoration, trueRanges);
+        // editor.setDecorations(this.boolFalseDecoration, falseRanges);
+        editor.setDecorations(this.csfPreviewDecoration, csfDecorations);
     }
 
     public dispose() {
