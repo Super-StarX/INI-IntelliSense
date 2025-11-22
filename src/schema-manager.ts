@@ -309,7 +309,13 @@ export class SchemaManager {
                     const lowerKey = key.toLowerCase();
                     if (lowerKey === 'startwith') { limit.startWith = value.split(',').map(v => v.trim()); }
                     else if (lowerKey === 'endwith') { limit.endWith = value.split(',').map(v => v.trim()); }
-                    else if (lowerKey === 'limitin') { limit.limitIn = value.split(',').map(v => v.trim()); }
+                    else if (lowerKey === 'limitin' || lowerKey.startsWith('limitin.')) {
+                        const newValues = value.split(',').map(v => v.trim()).filter(v => v.length > 0);
+                        if (!limit.limitIn) {
+                            limit.limitIn = [];
+                        }
+                        limit.limitIn.push(...newValues);
+                    }
                     else if (lowerKey === 'casesensitive') { limit.caseSensitive = ['true', 'yes', '1'].includes(value.toLowerCase()); }
                 }
                 this.stringLimits.set(typeName, limit);
