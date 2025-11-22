@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import * as ini from 'ini';
+import * as path from 'path';
 import { localize } from './i18n';
 
 /**
@@ -10,6 +10,7 @@ export interface PropertyDefinition {
     type: string;        // 值的类型，如 'int', 'bool', 'BuildingType'
     defaultValue?: string; // 默认值
     fileType?: string;   // 该键所属的文件类型，如 'rules', 'art'。如果未定义，则通用。
+    source?: string;     // 键的来源（文件名，不含后缀），如 'Ares', 'Phobos'，如果是主字典则可能为空或 'INIDictionary'
 }
 
 /**
@@ -92,6 +93,8 @@ export class SchemaManager {
     private stringLimitTypes: Set<string> = new Set();
     private listTypes: Set<string> = new Set();
     
+    // 用于防止循环 include
+    private visitedPaths: Set<string> = new Set();
 
     /**
      * 清空所有已加载的 schema 数据，重置状态。
@@ -113,6 +116,7 @@ export class SchemaManager {
         this.numberLimitTypes.clear();
         this.stringLimitTypes.clear();
         this.listTypes.clear();
+        this.visitedPaths.clear();
     }
 
     /**
@@ -158,21 +162,98 @@ export class SchemaManager {
 
         this.clearSchema();
         this.schemaFilePath = filePath;
-        
+
+        // 开始递归解析
+        this.parseFileRecursively(filePath);
+
+        if (this.registries.size > 0 || this.schemas.size > 0) {
+            this.isLoaded = true;
+        }
+
+        const endTime = Date.now();
+        console.log(`[SchemaManager] Schema loaded in ${endTime - startTime}ms. Visited files: ${this.visitedPaths.size}`);
+    }
+
+    /**
+     * 递归解析单个文件
+     * @param filePath 文件的绝对路径
+     */
+    private parseFileRecursively(filePath: string) {
+        if (this.visitedPaths.has(filePath)) {
+            return;
+        }
+        this.visitedPaths.add(filePath);
+
+        let content: string;
+        try {
+            content = fs.readFileSync(filePath, 'utf-8');
+        } catch (e) {
+            console.error(`[SchemaManager] Failed to read file: ${filePath}`, e);
+            return;
+        }
+
+        const lines = content.split(/\r?\n/);
+        const dirName = path.dirname(filePath);
+        const sourceName = path.parse(filePath).name; // 获取文件名作为来源，不含后缀
+
+        // 预扫描：处理 [#include]
+        let inIncludeSection = false;
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine === '' || trimmedLine.startsWith(';')) { continue; }
+
+            if (trimmedLine.startsWith('[')) {
+                inIncludeSection = trimmedLine.toLowerCase() === '[#include]';
+                continue;
+            }
+
+            if (inIncludeSection) {
+                // 支持 "Key=File" 和 "File" 两种格式
+                let includePath = trimmedLine;
+                const equalsIndex = trimmedLine.indexOf('=');
+                if (equalsIndex !== -1) {
+                    includePath = trimmedLine.substring(equalsIndex + 1).trim();
+                }
+                
+                if (includePath) {
+                    const absolutePath = path.resolve(dirName, includePath);
+                    // 优先解析子文件（深度优先），这样主文件的定义可以覆盖子文件（如果需要）
+                    // 或者如果想要子文件覆盖主文件，可以放在后面解析。
+                    // 这里采用先加载子文件，主文件的定义将合并/覆盖进去。
+                    this.parseFileRecursively(absolutePath);
+                }
+            }
+        }
+
+        // 解析当前文件内容
+        this.parseContent(content, sourceName);
+    }
+
+    /**
+     * 解析具体的 Schema 内容字符串并合并到内存数据结构中
+     * @param content 文件内容
+     * @param sourceName 来源标识（文件名）
+     */
+    private parseContent(content: string, sourceName: string) {
         const lines = content.split(/\r?\n/);
         
-        // --- 第一遍扫描：识别所有节及其继承关系 ---
+        // 第一遍扫描：识别节结构
         const preParsed = new Map<string, { base: string | null, contentLines: string[] }>();
         let currentSection: { base: string | null, contentLines: string[] } | null = null;
 
         for (const line of lines) {
             const trimmedLine = line.trim();
-            if (trimmedLine === '' || trimmedLine.startsWith(';')) {continue;}
+            if (trimmedLine === '' || trimmedLine.startsWith(';')) { continue; }
 
             const sectionMatch = trimmedLine.match(/^\[([^\]:]+)\](?::\[([^\]]+)\])?/);
 
             if (sectionMatch) {
                 const typeName = sectionMatch[1].trim();
+                // 忽略 [#include] 节，因为已经在上一层处理过了
+                if (typeName.toLowerCase() === '#include') {
+                    currentSection = null;
+                    continue;
+                }
                 const baseName = sectionMatch[2] ? sectionMatch[2].trim() : null;
                 currentSection = { base: baseName, contentLines: [] };
                 preParsed.set(typeName, currentSection);
@@ -180,14 +261,14 @@ export class SchemaManager {
                 currentSection.contentLines.push(trimmedLine);
             }
         }
-        
-        // --- 第二遍扫描：处理预解析的数据，填充正式的数据结构 ---
+
+        // 填充类型集合
         const processCategory = (categoryName: string, typeSet: Set<string>) => {
             const data = preParsed.get(categoryName);
             if (data) {
                 data.contentLines.forEach(line => {
                     const [key] = this.parseKeyValue(line);
-                    if (key) {typeSet.add(key);}
+                    if (key) { typeSet.add(key); }
                 });
             }
         };
@@ -197,9 +278,8 @@ export class SchemaManager {
         processCategory('Limits', this.stringLimitTypes);
         processCategory('Lists', this.listTypes);
 
-        // 遍历所有解析出的节，填充 registries 和 schemas
+        // 填充具体定义
         for (const [typeName, data] of preParsed.entries()) {
-            // 根据节名处理内容
             if (typeName === 'Registries') {
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
@@ -211,9 +291,10 @@ export class SchemaManager {
             } else if (typeName === 'Sections') {
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
-                    if (key && value) {this.sections.set(key, value);}
+                    if (key && value) { this.sections.set(key, value); }
                 }
             } else if (this.numberLimitTypes.has(typeName)) {
+                // 对于 Limit 类型，通常是原子替换，而不是合并
                 const rangeLine = data.contentLines.find(l => l.trim().toLowerCase().startsWith('range'));
                 if (rangeLine) {
                     const [, value] = this.parseKeyValue(rangeLine);
@@ -224,58 +305,57 @@ export class SchemaManager {
                 const limit: StringLimit = {};
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
-                    if (!key || value === null) {continue;}
+                    if (!key || value === null) { continue; }
                     const lowerKey = key.toLowerCase();
-                    if (lowerKey === 'startwith') {limit.startWith = value.split(',').map(v => v.trim());}
-                    else if (lowerKey === 'endwith') {limit.endWith = value.split(',').map(v => v.trim());}
-                    else if (lowerKey === 'limitin') {limit.limitIn = value.split(',').map(v => v.trim());}
-                    else if (lowerKey === 'casesensitive') {limit.caseSensitive = ['true', 'yes', '1'].includes(value.toLowerCase());}
+                    if (lowerKey === 'startwith') { limit.startWith = value.split(',').map(v => v.trim()); }
+                    else if (lowerKey === 'endwith') { limit.endWith = value.split(',').map(v => v.trim()); }
+                    else if (lowerKey === 'limitin') { limit.limitIn = value.split(',').map(v => v.trim()); }
+                    else if (lowerKey === 'casesensitive') { limit.caseSensitive = ['true', 'yes', '1'].includes(value.toLowerCase()); }
                 }
                 this.stringLimits.set(typeName, limit);
             } else if (this.listTypes.has(typeName)) {
                 const definition: ListDefinition = { type: 'string' };
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
-                    if (!key || value === null) {continue;}
+                    if (!key || value === null) { continue; }
                     const lowerKey = key.toLowerCase();
-                    if (lowerKey === 'type') {
-                        definition.type = value;
-                    } else if (lowerKey === 'range') {
+                    if (lowerKey === 'type') { definition.type = value; }
+                    else if (lowerKey === 'range') {
                         const [min, max] = value.split(',').map(v => parseInt(v.trim(), 10));
-                        if (!isNaN(min)) {definition.minRange = min;}
-                        if (!isNaN(max)) {definition.maxRange = max;}
+                        if (!isNaN(min)) { definition.minRange = min; }
+                        if (!isNaN(max)) { definition.maxRange = max; }
                     }
                 }
                 this.listDefinitions.set(typeName, definition);
-            } else { // 这是一个普通的类型定义节
-                const definition = this.schemas.get(typeName) ?? { keys: new Map(), base: null };
-                if (data.base) {definition.base = data.base;}
+            } else { 
+                // 普通类型定义：需要合并 Keys
+                let definition = this.schemas.get(typeName);
+                if (!definition) {
+                    definition = { keys: new Map(), base: null };
+                    this.schemas.set(typeName, definition);
+                }
+                
+                // 更新基类（如果当前文件指定了基类）
+                if (data.base) { definition.base = data.base; }
+
                 for (const line of data.contentLines) {
                     const [key, value] = this.parseKeyValue(line);
                     if (key) {
                         const keyName = key.split('(')[0].trim();
-                        const propertyDef = this.parsePropertyDefinition(value || 'string');
+                        const propertyDef = this.parsePropertyDefinition(value || 'string', sourceName);
                         definition.keys.set(keyName, propertyDef);
                     }
                 }
-                this.schemas.set(typeName, definition);
             }
         }
-
-        if (this.registries.size > 0 || this.schemas.size > 0) {
-            this.isLoaded = true;
-        }
-
-        const endTime = Date.now();
-        console.log(`[SchemaManager] Schema loaded in ${endTime - startTime}ms.`);
     }
 
     /**
      * 解析属性定义字符串。
-     * 格式: type,default,fileType
-     * 例如: "int", "int,0", "Anim,<none>,art", ",,rules"
+     * @param valueString 定义字符串
+     * @param sourceName 来源文件名
      */
-    private parsePropertyDefinition(valueString: string): PropertyDefinition {
+    private parsePropertyDefinition(valueString: string, sourceName: string): PropertyDefinition {
         const parts = valueString.split(',').map(p => p.trim());
         
         const type = parts[0] || 'string';
@@ -285,7 +365,8 @@ export class SchemaManager {
         return {
             type,
             defaultValue,
-            fileType
+            fileType,
+            source: sourceName // 注入来源
         };
     }
 

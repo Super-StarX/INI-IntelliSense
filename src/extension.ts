@@ -486,8 +486,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		outputChannel.show();
 	}));
 
-    // 剩下的 Provider 注册逻辑（Rename, CodeAction, Definition...）不需要修改，
-    // 因为它们调用的 INIManager API 已经适配兼容。
 	context.subscriptions.push(
 		vscode.languages.registerRenameProvider(selector, new IniRenameProvider(iniManager)),
 		vscode.languages.registerCodeActionsProvider(selector, new IniCodeActionProvider(iniManager, schemaManager), {
@@ -572,6 +570,10 @@ export async function activate(context: vscode.ExtensionContext) {
                         if (propDef.fileType) {
                             markdown.appendMarkdown(`\n- File Type: \`${propDef.fileType}\``);
                         }
+                        if (propDef.source && propDef.source !== 'INIDictionary') {
+                             markdown.appendMarkdown(`\n- Source: **${propDef.source}**`);
+                        }
+
 						markdown.appendMarkdown(localize('hover.type.belongsTo', `\n\nBelongs to type **{0}**.`, typeName));
 						hasContent = true;
 					}
