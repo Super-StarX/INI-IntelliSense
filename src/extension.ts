@@ -7,6 +7,7 @@ import { SchemaManager } from './schema-manager';
 import { IniSemanticTokensProvider, legend } from './semantic-tokens-provider';
 import { DiagnosticManager } from './diagnostics/engine';
 import { OverrideDecorator } from './override-decorator';
+import { ValuePreviewDecorator } from './value-preview-decorator';
 import { WelcomePanel } from './welcome-panel';
 import { localize, initializeNls } from './i18n';
 import { IniRenameProvider } from './refactoring/rename-provider';
@@ -43,6 +44,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const overrideDecorator = new OverrideDecorator(context, iniManager, schemaManager, fileTypeManager);
 	context.subscriptions.push(overrideDecorator);
+
+    const valuePreviewDecorator = new ValuePreviewDecorator(iniManager, schemaManager);
+    context.subscriptions.push(valuePreviewDecorator);
 
 	const mainStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 	mainStatusBar.command = 'ra2-ini-intellisense.showMainQuickPick';
@@ -312,6 +316,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(vscode.window.onDidChangeTextEditorVisibleRanges(e => {
         diagnosticManager.handleViewportChange(e.textEditor);
         overrideDecorator.triggerUpdateDecorations(e.textEditor, true);
+        valuePreviewDecorator.triggerUpdate(e.textEditor, true);
     }));
 
     // 2. 文档内容变化：热更新当前行 + 增量解析
@@ -322,11 +327,16 @@ export async function activate(context: vscode.ExtensionContext) {
 			diagnosticManager.handleDocumentChange(event.document, event.contentChanges.map(c => c.range));
             // 触发装饰器（防抖）
             overrideDecorator.triggerUpdateDecorations(vscode.window.activeTextEditor, true);
+            valuePreviewDecorator.triggerUpdate(vscode.window.activeTextEditor, true);
 		}
 	});
 
 	loadSchemaFromConfiguration().then(() => {
 		overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
+        // 初始加载时触发所有编辑器的预览更新
+        if (vscode.window.activeTextEditor) {
+            valuePreviewDecorator.triggerUpdate(vscode.window.activeTextEditor);
+        }
 	});
 
 	let codeLensProvider: vscode.Disposable | undefined;
@@ -398,6 +408,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 // 配置变更触发全量重查
 				vscode.window.visibleTextEditors.forEach(e => diagnosticManager.handleDocumentChange(e.document));
 				overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
+                if (vscode.window.activeTextEditor) {
+                    valuePreviewDecorator.triggerUpdate(vscode.window.activeTextEditor);
+                }
 			});
 		}
 	}));

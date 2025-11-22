@@ -8,6 +8,7 @@ const DICT_FILENAME = 'INIDictionary.ini';
 // 定义主源和备用源列表
 const DOWNLOAD_BASE_URLS = [
     'https://raw.githubusercontent.com/Starry-Orbit-Studio/RA2-INI-Dictionary/main/',
+    'https://cdn.jsdelivr.net/gh/Starry-Orbit-Studio/RA2-INI-Dictionary@main/', 
     'https://fastly.jsdelivr.net/gh/Starry-Orbit-Studio/RA2-INI-Dictionary@main/', // jsDelivr CDN
     'https://raw.gitmirror.com/Starry-Orbit-Studio/RA2-INI-Dictionary/main/', // GitMirror
 ];
