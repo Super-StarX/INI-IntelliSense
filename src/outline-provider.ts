@@ -3,7 +3,6 @@ import * as path from 'path';
 import { INIManager } from './parser';
 import { localize } from './i18n';
 
-// 定义树视图中条目的类型
 enum OutlineItemType {
     Directory,
     File,
@@ -11,15 +10,12 @@ enum OutlineItemType {
     Key
 }
 
-/**
- * 代表大纲视图中的一个可显示条目
- */
 class OutlineItem extends vscode.TreeItem {
     public itemType: OutlineItemType;
     public filePath: string;
     public sectionName?: string;
     public keyPath?: string;
-    public data?: any; // 用于存储子级数据, 如目录下的文件或键下的子键
+    public data?: any; 
 
     constructor(
         label: string,
@@ -41,12 +37,9 @@ class OutlineItem extends vscode.TreeItem {
         this.keyPath = options?.keyPath;
         this.data = options?.data;
         this.description = options?.description;
-        this.contextValue = OutlineItemType[itemType]; // 用于 'when' 子句
-
-        // 设置图标
+        this.contextValue = OutlineItemType[itemType]; 
         this.iconPath = this.getIcon();
 
-        // 设置点击条目时的命令
         if (options?.lineNumber !== undefined) {
             const uri = vscode.Uri.file(this.filePath);
             const position = new vscode.Position(options.lineNumber, 0);
@@ -58,9 +51,6 @@ class OutlineItem extends vscode.TreeItem {
         }
     }
 
-    /**
-     * 根据条目类型返回对应的 Codicon 图标
-     */
     private getIcon(): vscode.ThemeIcon {
         switch (this.itemType) {
             case OutlineItemType.Directory:
@@ -77,18 +67,12 @@ class OutlineItem extends vscode.TreeItem {
     }
 }
 
-/**
- * 为 INI 文件提供大纲视图的数据
- */
 export class INIOutlineProvider implements vscode.TreeDataProvider<OutlineItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<OutlineItem | undefined | null | void> = new vscode.EventEmitter<OutlineItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<OutlineItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
     constructor(private context: vscode.ExtensionContext, private iniManager: INIManager) {}
 
-    /**
-     * 刷新整个树视图
-     */
     refresh(): void {
         this._onDidChangeTreeData.fire();
     }
@@ -97,10 +81,6 @@ export class INIOutlineProvider implements vscode.TreeDataProvider<OutlineItem> 
         return element;
     }
 
-    /**
-     * 获取指定元素的子元素
-     * @param element 父元素, 如果为 undefined, 则获取根元素
-     */
     async getChildren(element?: OutlineItem): Promise<OutlineItem[]> {
         if (!vscode.workspace.workspaceFolders) {
             vscode.window.showInformationMessage(localize('outline.noFiles', 'No INI files in empty workspace'));
@@ -108,69 +88,83 @@ export class INIOutlineProvider implements vscode.TreeDataProvider<OutlineItem> 
         }
 
         if (!element) {
-            // 根级别: 构建并显示文件和目录树
-            const filePaths = Array.from(this.iniManager.files.keys())
-                .filter(p => !p.includes('INIConfigCheck.ini')); // 过滤掉字典文件
+            const filePaths = Array.from(this.iniManager.documents.keys())
+                .filter(p => !p.includes('INIConfigCheck.ini')); 
 
             const tree = this.buildFileTree(filePaths);
             return this.createTreeItemsFromNode(tree, vscode.workspace.workspaceFolders[0].uri.fsPath);
         }
 
-        const { itemType, filePath, data } = element;
+        const { itemType, filePath } = element;
 
         switch (itemType) {
             case OutlineItemType.Directory:
-                // 目录级别: 显示其下的文件和子目录
-                return this.createTreeItemsFromNode(data, filePath);
+                return this.createTreeItemsFromNode(element.data, filePath);
             
             case OutlineItemType.File:
-                // 文件级别: 显示所有节(sections)
-                const fileData = this.iniManager.files.get(filePath);
-                if (!fileData?.parsed) {return [];}
+                const doc = this.iniManager.getDocument(filePath);
+                if (!doc) {return [];}
                 
-                const sections = Object.keys(fileData.parsed);
-                return sections.map(sectionName => {
-                    const lineNumber = this.iniManager.findSectionInContent(fileData.content, sectionName) ?? 0;
-                    return new OutlineItem(`[${sectionName}]`, OutlineItemType.Section, filePath, vscode.TreeItemCollapsibleState.Collapsed, { sectionName, lineNumber });
+                return doc.sections.map(sec => {
+                    return new OutlineItem(
+                        `[${sec.name}]`, 
+                        OutlineItemType.Section, 
+                        filePath, 
+                        sec.properties.size > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None, 
+                        { sectionName: sec.name, lineNumber: sec.startLine }
+                    );
                 });
 
             case OutlineItemType.Section:
-            case OutlineItemType.Key:
-                // 节或键级别: 递归显示其下的键(keys)
-                const parentData = itemType === OutlineItemType.Section
-                    ? this.iniManager.files.get(filePath)?.parsed[element.sectionName!]
-                    : data;
+                // 使用 Document Model 直接获取属性，替代旧的 parsed 对象
+                const sectionDoc = this.iniManager.getDocument(filePath);
+                const section = sectionDoc?.getSection(element.sectionName!);
+                
+                if (!section) { return []; }
 
-                if (typeof parentData !== 'object' || parentData === null) {return [];}
-
-                return Object.entries(parentData).map(([key, value]) => {
-                    const isObject = typeof value === 'object' && value !== null;
-                    const newKeyPath = element.keyPath ? `${element.keyPath}.${key}` : key;
-                    const lineNumber = this.findKeyLineNumber(this.iniManager.files.get(filePath)!.content, element.sectionName!, newKeyPath);
-
-                    return new OutlineItem(
+                // 由于属性没有行号索引，需要重新扫描一下该节的范围
+                // 但我们在 buildCrossReferencesIndex 里已经知道如何扫描了
+                // 为了大纲的性能，这里做一次局部扫描
+                const items: OutlineItem[] = [];
+                const lines = sectionDoc!.content.split(/\r?\n/);
+                
+                // 这里只列出直接属性，不支持旧版的嵌套对象（因为 INI 本质是扁平的）
+                for (const [key, value] of section.properties) {
+                    // 简单查找行号
+                    let lineNum = section.startLine;
+                    // 优化：从节头开始往下找
+                    for(let i = section.startLine + 1; i <= section.endLine; i++) {
+                        const line = lines[i];
+                        const eqIdx = line.indexOf('=');
+                        if (eqIdx !== -1 && line.substring(0, eqIdx).trim() === key) {
+                            lineNum = i;
+                            break;
+                        }
+                    }
+                    
+                    items.push(new OutlineItem(
                         key,
                         OutlineItemType.Key,
                         filePath,
-                        isObject ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+                        vscode.TreeItemCollapsibleState.None,
                         {
                             sectionName: element.sectionName,
-                            keyPath: newKeyPath,
-                            lineNumber,
-                            data: isObject ? value : undefined,
-                            description: isObject ? '' : String(value)
+                            keyPath: key,
+                            lineNumber: lineNum,
+                            description: value
                         }
-                    );
-                });
+                    ));
+                }
+                return items;
+            
+            // Key 级别不再有子级
+            case OutlineItemType.Key:
+                return [];
         }
 
         return [];
     }
 
-    /**
-     * 将文件路径列表构建成一个嵌套的树状对象
-     * @param filePaths 文件路径数组
-     */
     private buildFileTree(filePaths: string[]): any {
         const tree: { [key: string]: any } = {};
         const workspaceRoot = vscode.workspace.workspaceFolders![0].uri.fsPath;
@@ -191,11 +185,6 @@ export class INIOutlineProvider implements vscode.TreeDataProvider<OutlineItem> 
         return tree;
     }
 
-    /**
-     * 从树节点创建 TreeItem 数组
-     * @param node 当前树节点
-     * @param parentPath 父路径
-     */
     private createTreeItemsFromNode(node: any, parentPath: string): OutlineItem[] {
         const items = Object.entries(node).map(([name, childNode]: [string, any]) => {
             const currentPath = path.join(parentPath, name);
@@ -206,53 +195,11 @@ export class INIOutlineProvider implements vscode.TreeDataProvider<OutlineItem> 
             }
         });
 
-        // 排序: 目录在前, 文件在后, 然后按字母顺序
         return items.sort((a, b) => {
             if (a.itemType !== b.itemType) {
                 return a.itemType === OutlineItemType.Directory ? -1 : 1;
             }
             return String(a.label!).localeCompare(String(b.label!));
         });
-    }
-
-    /**
-     * 在文件内容中查找指定节内特定键(包括嵌套键)的行号
-     * @param content 文件全文内容
-     * @param sectionName 节名
-     * @param keyPath 完整的键路径, 如 "Audio.Sub.Another"
-     * @returns 行号 (从0开始), 未找到则返回0
-     */
-    private findKeyLineNumber(content: string, sectionName: string, keyPath: string): number {
-        const lines = content.split(/\r?\n/);
-        let inSection = false;
-        
-        // 转义正则表达式特殊字符
-        const escapeRegex = (str: string) => str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        
-        const sectionRegex = new RegExp(`^\\[${escapeRegex(sectionName)}\\]`);
-        // 点号在正则表达式中是特殊字符, 需要转义
-        const keyRegex = new RegExp(`^\\s*${escapeRegex(keyPath).replace(/\./g, '\\.')}\\s*=`);
-        const nextSectionRegex = /^\s*\[.+\]/;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i]; // 不 trim(), 以便匹配行首空格
-            if (sectionRegex.test(line.trim())) {
-                inSection = true;
-                continue;
-            }
-            
-            if (inSection) {
-                if (keyRegex.test(line)) {
-                    return i; // 找到键, 返回行号
-                }
-                // 如果在节内遇到了下一个节的开始, 则停止搜索
-                if (nextSectionRegex.test(line.trim())) {
-                    break;
-                }
-            }
-        }
-        // 如果找不到精确匹配, 回退到查找节的行号
-        const sectionLine = this.iniManager.findSectionInContent(content, sectionName);
-        return sectionLine !== null ? sectionLine : 0;
     }
 }

@@ -273,15 +273,6 @@
           "default": true,
           "description": "%configuration.properties.diagnostics.enabled.description%"
         },
-        "ra2-ini-intellisense.diagnostics.severity": {
-          "type": "object",
-          "default": {},
-          "description": "%configuration.properties.diagnostics.severity.description%",
-          "additionalProperties": {
-            "type": "string",
-            "enum": ["Error", "Warning", "Information", "Hint", "None"]
-          }
-        },
         "ra2-ini-intellisense.diagnostics.spaceBeforeEquals": {
           "type": "boolean",
           "default": true,
@@ -309,6 +300,15 @@
           "type": "boolean",
           "default": true,
           "description": "%configuration.properties.diagnostics.spaceAfterComment.description%"
+        },
+        "ra2-ini-intellisense.diagnostics.severity": {
+          "type": "object",
+          "default": {},
+          "description": "%configuration.properties.diagnostics.severity.description%",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["Error", "Warning", "Information", "Hint", "None"]
+          }
         }
       }
     },

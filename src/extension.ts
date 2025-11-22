@@ -5,9 +5,7 @@ import { INIValidatorExt } from './ini-validator-ext';
 import { INIOutlineProvider } from './outline-provider';
 import { SchemaManager } from './schema-manager';
 import { IniSemanticTokensProvider, legend } from './semantic-tokens-provider';
-import { DiagnosticEngine } from './diagnostics/engine';
-import { ErrorCode } from './diagnostics/error-codes';
-import { IniDiagnostic } from './diagnostics/diagnostic';
+import { DiagnosticManager } from './diagnostics/engine';
 import { OverrideDecorator } from './override-decorator';
 import { WelcomePanel } from './welcome-panel';
 import { localize, initializeNls } from './i18n';
@@ -19,15 +17,8 @@ import { registerFormattingCommands } from './formatting/formatter';
 import { DictionaryService } from './dictionary-service';
 import { FileTypeManager } from './file-type-manager';
 
-let diagnostics: vscode.DiagnosticCollection;
 const LANGUAGE_ID = 'ra2-ini';
 
-/**
- * 扩展的主激活函数。
- * 当扩展被激活时（例如，首次打开 INI 文件时），此函数将被调用。
- * 它负责初始化所有功能、注册命令和事件监听器。
- * @param context 扩展的上下文，用于管理订阅和状态。
- */
 export async function activate(context: vscode.ExtensionContext) {
     initializeNls(context);
 	const outputChannel = vscode.window.createOutputChannel(localize('output.channel.name', 'INI IntelliSense'));
@@ -38,10 +29,11 @@ export async function activate(context: vscode.ExtensionContext) {
     const fileTypeManager = new FileTypeManager();
 	iniManager.setSchemaManager(schemaManager);
     iniManager.setFileTypeManager(fileTypeManager);
-	const diagnosticEngine = new DiagnosticEngine();
+
+    // 使用新的诊断管理器
+	const diagnosticManager = new DiagnosticManager(context, schemaManager, iniManager);
     
 	let isIndexing = false; 
-    let isDiagnosing = false; 
 
 	const selector = { language: LANGUAGE_ID };
 
@@ -52,32 +44,29 @@ export async function activate(context: vscode.ExtensionContext) {
 	const overrideDecorator = new OverrideDecorator(context, iniManager, schemaManager, fileTypeManager);
 	context.subscriptions.push(overrideDecorator);
 
-	// 创建一个统一的状态栏入口
 	const mainStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 	mainStatusBar.command = 'ra2-ini-intellisense.showMainQuickPick';
 	context.subscriptions.push(mainStatusBar);
 
-    // 创建一个显示文件类型的状态栏项
     const fileTypeStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
-    fileTypeStatusBar.command = 'workbench.action.openSettings'; // 点击打开设置，方便修改规则
+    fileTypeStatusBar.command = 'workbench.action.openSettings';
     fileTypeStatusBar.tooltip = "Current INI File Type (Click to Configure)";
     context.subscriptions.push(fileTypeStatusBar);
 
-	diagnostics = vscode.languages.createDiagnosticCollection('ini');
-	const iniValidator = new INIValidatorExt(diagnostics);
+    // INIValidator 使用独立的 DiagnosticCollection，避免与内部诊断冲突
+	const validatorDiagnostics = vscode.languages.createDiagnosticCollection('ini-validator');
+	const iniValidator = new INIValidatorExt(validatorDiagnostics);
     const dictionaryService = new DictionaryService(context);
-	// 不要 await 初始化，让它在后台运行
+	
 	iniValidator.initialize(context);
-	// 监听校验器状态变化，以更新统一状态栏
 	context.subscriptions.push(iniValidator.onDidChangeStatus(() => updateMainStatus()));
-
-	context.subscriptions.push(diagnostics);
+	context.subscriptions.push(validatorDiagnostics);
+    // DiagnosticManager 内部管理了自己的 collection，记得 dispose
+    context.subscriptions.push(diagnosticManager);
 
 	context.subscriptions.push(vscode.window.createTreeView('ini-outline', { treeDataProvider: outlineProvider }));
     context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.refreshOutline', () => outlineProvider.refresh()));
 
-    // 辅助函数：获取有效的项目根目录
-    // 优先级：用户配置 > 当前工作区第一个文件夹 > undefined
     function getProjectRoot(): string | undefined {
         const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
         const configPath = config.get<string | null>('validationFolderPath');
@@ -91,22 +80,20 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
 	async function indexWorkspaceFiles() {
-		if (isIndexing) { return; } // 防止重复索引
+		if (isIndexing) { return; }
 		isIndexing = true;
-		updateMainStatus(); // 更新状态栏为“正在索引”
+		updateMainStatus();
 
 		try {
 			const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
 			const includePatterns = config.get<string[]>('indexing.includePatterns', []);
 			const excludePatterns = config.get<string[]>('indexing.excludePatterns', []);
-            // 合并旧的 includePatterns 和新的 fileCategories 中的模式
             const categoryPatterns = fileTypeManager.getAllCategoryPatterns();
             const combinedIncludePatterns = Array.from(new Set([...includePatterns, ...categoryPatterns]));
 			
             const projectRoot = getProjectRoot();
 
 			if (!projectRoot || combinedIncludePatterns.length === 0) {
-				// 如果既没配置路径，也没打开文件夹，或者没有包含模式，则无法索引
 				console.log('INI IntelliSense: 未找到有效项目根目录或包含模式，跳过文件索引。');
 				await iniManager.indexFiles([]);
 				outlineProvider.refresh();
@@ -114,22 +101,20 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
             
             const searchRoot = vscode.Uri.file(projectRoot);
-            // 使用合并后的模式进行搜索
 			const includePattern = new vscode.RelativePattern(searchRoot, `{${combinedIncludePatterns.join(',')}}`);
 			const excludePattern = excludePatterns.length > 0 ? new vscode.RelativePattern(searchRoot, `{${excludePatterns.join(',')}}`) : null;
 			
 			const iniFiles = await vscode.workspace.findFiles(includePattern, excludePattern);
 			await iniManager.indexFiles(iniFiles);
-			const indexedFiles = Array.from(iniManager.files.keys()).map(p => path.basename(p));
-			console.log(`INI IntelliSense: 已索引 ${iniManager.files.size} 个INI文件: [${indexedFiles.join(', ')}]`);
+			const indexedFiles = Array.from(iniManager.documents.keys()).map(p => path.basename(p));
+			console.log(`INI IntelliSense: 已索引 ${iniManager.documents.size} 个INI文件: [${indexedFiles.join(', ')}]`);
 			outlineProvider.refresh();
 		} finally {
 			isIndexing = false;
-			updateMainStatus(); // 索引完成，恢复正常状态
+			updateMainStatus();
 		}
 	}
 	
-    // 更新文件类型状态栏的辅助函数
     function updateFileTypeStatus(editor: vscode.TextEditor | undefined) {
         if (editor && editor.document.languageId === LANGUAGE_ID) {
             const type = fileTypeManager.getFileType(editor.document.uri);
@@ -149,19 +134,10 @@ export async function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-        if (isDiagnosing) {
-            mainStatusBar.text = `$(beaker) INI: ${localize('statusbar.diagnosing', 'Diagnosing...')}`;
-            mainStatusBar.tooltip = "Running diagnostics on open files...";
-            mainStatusBar.backgroundColor = undefined;
-            mainStatusBar.show();
-            return;
-        }
-
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
         const projectRoot = getProjectRoot();
 
 		if (!projectRoot) {
-            // 只有当既没配置，也没打开文件夹时，才显示警告
 			mainStatusBar.text = `$(folder) INI: ${localize('statusbar.setProjectRoot', 'Set Project Root')}`;
 			mainStatusBar.tooltip = localize('statusbar.setProjectRoot.tooltip', 'Mod root directory is not set. Click to configure to enable file indexing and diagnostics.');
 			mainStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
@@ -183,7 +159,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			let tooltip = localize('statusbar.ready.tooltip.base', 'INI IntelliSense is ready') +
 				`\n- ${localize('statusbar.ready.tooltip.project', 'Project')}: ${path.basename(projectRoot)}` +
 				`\n- ${localize('statusbar.ready.tooltip.dictionary', 'Dictionary')}: ${path.basename(dictPath)}` +
-				`\n- ${localize('statusbar.ready.tooltip.indexed', 'Indexed Files')}: ${iniManager.files.size}`;
+				`\n- ${localize('statusbar.ready.tooltip.indexed', 'Indexed Files')}: ${iniManager.documents.size}`;
 			
 			if(iniValidator.status === 'ready') {
 				tooltip += `\n- ${localize('statusbar.ready.tooltip.validator', 'Validator')}: ${localize('statusbar.ready.tooltip.validator.ready', 'Ready')}`;
@@ -214,19 +190,12 @@ export async function activate(context: vscode.ExtensionContext) {
 			schemaManager.clearSchema();
 		}
 		
-		// 索引依赖于schema，所以放在这里。注意：这里不 await
 		indexWorkspaceFiles();
-        // 加载完成后，立即触发诊断
-        // 优先诊断当前活动编辑器，提升体验
-        if (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.languageId === LANGUAGE_ID) {
-            triggerUpdateDiagnostics(vscode.window.activeTextEditor.document);
+        
+        // 初始全量诊断（现在是异步调度）
+        if (vscode.window.activeTextEditor) {
+            diagnosticManager.handleDocumentChange(vscode.window.activeTextEditor.document);
         }
-        // 然后对所有其他可见编辑器进行诊断
-        vscode.window.visibleTextEditors.forEach(editor => {
-            if (editor !== vscode.window.activeTextEditor && editor.document.languageId === LANGUAGE_ID) {
-                triggerUpdateDiagnostics(editor.document);
-            }
-        });
 	}
 	
 	context.subscriptions.push(vscode.commands.registerCommand('ra2-ini-intellisense.configureSchemaPath', async () => {
@@ -258,7 +227,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		WelcomePanel.createOrShow(context);
 	}));
 	
-	// 注册重构命令
 	registerExtractSuperclassCommand(iniManager);
 	registerRegisterIdCommand(iniManager, schemaManager);
 	registerFormattingCommands();
@@ -267,7 +235,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
         const notSetDescription = localize('mainMenu.description.notSet', 'Click to set');
 
-        // 使用 getProjectRoot 获取当前实际生效的路径
         const projectRoot = getProjectRoot();
         const dictPath = config.get<string>('schemaFilePath');
 
@@ -280,19 +247,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
         let validatorStatusText: string;
         switch(iniValidator.status) {
-            case 'ready': 
-                validatorStatusText = localize('validator.status.ready.short', 'Ready'); 
-                break;
-            case 'invalid': 
-                validatorStatusText = localize('validator.status.invalid.short', 'Invalid Path'); 
-                break;
-            case 'unconfigured':
-            default: 
-                validatorStatusText = localize('validator.status.unconfigured.short', 'Not Configured'); 
-                break;
+            case 'ready': validatorStatusText = localize('validator.status.ready.short', 'Ready'); break;
+            case 'invalid': validatorStatusText = localize('validator.status.invalid.short', 'Invalid Path'); break;
+            case 'unconfigured': default: validatorStatusText = localize('validator.status.unconfigured.short', 'Not Configured'); break;
         }
         const validatorDesc = localize('mainMenu.description.validatorStatus', 'Status: {0}', validatorStatusText);
-
 
 		const items: vscode.QuickPickItem[] = [
 			{ label: "$(rocket) 显示设置向导", description: "重新打开首次配置页面" },
@@ -318,7 +277,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		} else if (selection.label.includes("INI Validator")) {
 			iniValidator.showQuickPick();
 		} else if (selection.label.includes("重新索引")) {
-			// 这里使用 await 以便用户能感知到操作已完成
 			await indexWorkspaceFiles();
 			vscode.window.showInformationMessage("工作区已重新索引。");
 		} else if (selection.label.includes("插件设置")) {
@@ -338,16 +296,35 @@ export async function activate(context: vscode.ExtensionContext) {
 		editor.revealRange(new vscode.Range(targetPosition, targetPosition), vscode.TextEditorRevealType.InCenter);
 	}));
 
-	// 立即更新一次UI状态，显示初始状态
 	updateMainStatus();
     updateFileTypeStatus(vscode.window.activeTextEditor);
 
-    // 监听活动编辑器变化，更新文件类型状态栏
     context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor => {
         updateFileTypeStatus(editor);
+        if (editor) {
+            diagnosticManager.handleDocumentChange(editor.document);
+        }
     }));
 
-	// 开始加载Schema和索引文件，但不阻塞激活流程
+    // --- 核心事件绑定：极限性能优化 ---
+
+    // 1. 视口变化：极速检查可见区域
+    context.subscriptions.push(vscode.window.onDidChangeTextEditorVisibleRanges(e => {
+        diagnosticManager.handleViewportChange(e.textEditor);
+        overrideDecorator.triggerUpdateDecorations(e.textEditor, true);
+    }));
+
+    // 2. 文档内容变化：热更新当前行 + 增量解析
+	vscode.workspace.onDidChangeTextDocument(async event => {
+		if (event.document.languageId === LANGUAGE_ID) {
+			await iniManager.updateFile(event.document.uri, event.document.getText());
+            // 传入变更范围，触发局部热检查
+			diagnosticManager.handleDocumentChange(event.document, event.contentChanges.map(c => c.range));
+            // 触发装饰器（防抖）
+            overrideDecorator.triggerUpdateDecorations(vscode.window.activeTextEditor, true);
+		}
+	});
+
 	loadSchemaFromConfiguration().then(() => {
 		overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
 	});
@@ -359,39 +336,38 @@ export async function activate(context: vscode.ExtensionContext) {
 			if (!codeLensProvider) {
 				codeLensProvider = vscode.languages.registerCodeLensProvider(selector, {
 					provideCodeLenses(document, token) {
-						if (isIndexing) { return []; } // 索引期间不提供 CodeLens
+						if (isIndexing) { return []; }
 						const codeLenses: vscode.CodeLens[] = [];
-						for (let i = 0; i < document.lineCount; i++) {
-							const line = document.lineAt(i);
-							const sectionMatch = line.text.match(/^\s*\[([^\]:]+)\]/);
-							if (sectionMatch) {
-								const sectionName = sectionMatch[1];
-								const valueRefs = iniManager.valueReferences.get(sectionName) || [];
-								const inheritanceRefs = iniManager.inheritanceReferences.get(sectionName) || [];
-								
-								const range = new vscode.Range(i, 0, i, line.text.length);
-								const parts: string[] = [];
+                        // 使用新 API：直接遍历 Sections
+                        const doc = iniManager.getDocument(document.uri.fsPath);
+                        if (!doc) { return []; }
 
-								if (valueRefs.length > 0) {
-									parts.push(localize('codelens.references', '{0} references', valueRefs.length));
-								}
-								if (inheritanceRefs.length > 0) {
-									parts.push(localize('codelens.inheritors', '{0} inheritors', inheritanceRefs.length));
-								}
-		
-								let title: string;
-								if (parts.length > 0) {
-									title = parts.join(', ');
-								} else {
-									title = localize('codelens.noReferences', '0 references (potentially unused)');
-								}
-		
-								codeLenses.push(new vscode.CodeLens(range, {
-									title: title,
-									command: 'editor.action.findReferences',
-									arguments: [document.uri, new vscode.Position(i, 1)]
-								}));
-							}
+						for (const sec of doc.sections) {
+                            const valueRefs = iniManager.valueReferences.get(sec.name) || [];
+                            const inheritanceRefs = iniManager.inheritanceReferences.get(sec.name) || [];
+                            
+                            const range = new vscode.Range(sec.startLine, 0, sec.startLine, 100);
+                            const parts: string[] = [];
+
+                            if (valueRefs.length > 0) {
+                                parts.push(localize('codelens.references', '{0} references', valueRefs.length));
+                            }
+                            if (inheritanceRefs.length > 0) {
+                                parts.push(localize('codelens.inheritors', '{0} inheritors', inheritanceRefs.length));
+                            }
+    
+                            let title: string;
+                            if (parts.length > 0) {
+                                title = parts.join(', ');
+                            } else {
+                                title = localize('codelens.noReferences', '0 references (potentially unused)');
+                            }
+    
+                            codeLenses.push(new vscode.CodeLens(range, {
+                                title: title,
+                                command: 'editor.action.findReferences',
+                                arguments: [document.uri, new vscode.Position(sec.startLine, 1)]
+                            }));
 						}
 						return codeLenses;
 					}
@@ -407,10 +383,9 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
 		if (e.affectsConfiguration('ra2-ini-intellisense')) {
             if (e.affectsConfiguration('ra2-ini-intellisense.indexing')) {
-                fileTypeManager.reloadConfig(); // 重新加载文件分类配置
+                fileTypeManager.reloadConfig();
             }
 
-			// 配置变更后，重新加载 schema 并触发重新索引
 			loadSchemaFromConfiguration().then(() => {
 				updateMainStatus();
                 updateFileTypeStatus(vscode.window.activeTextEditor);
@@ -420,8 +395,8 @@ export async function activate(context: vscode.ExtensionContext) {
 				if (e.affectsConfiguration('ra2-ini-intellisense.decorations')) {
 					overrideDecorator.reload();
 				}
-				
-				vscode.workspace.textDocuments.forEach(doc => triggerUpdateDiagnostics(doc));
+                // 配置变更触发全量重查
+				vscode.window.visibleTextEditors.forEach(e => diagnosticManager.handleDocumentChange(e.document));
 				overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
 			});
 		}
@@ -434,11 +409,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	const onFileChange = async (uri: vscode.Uri) => {
 		console.log(`INI 文件变更: ${uri.fsPath}, 正在增量更新索引...`);
 		await iniManager.updateFile(uri);
-		vscode.workspace.textDocuments.forEach(doc => {
-			if (doc.languageId === LANGUAGE_ID) {
-				triggerUpdateDiagnostics(doc);
-			}
-		});
+        // 外部文件变更（非编辑器输入），触发全量刷新
+        const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
+        if (doc) { diagnosticManager.handleDocumentChange(doc); }
+        
         overrideDecorator.triggerUpdateDecorationsForAllVisibleEditors();
 		outlineProvider.refresh();
 	};
@@ -446,11 +420,6 @@ export async function activate(context: vscode.ExtensionContext) {
 	const onFileDelete = (uri: vscode.Uri) => {
 		console.log(`INI 文件删除: ${uri.fsPath}, 正在移除索引...`);
 		iniManager.removeFile(uri);
-		vscode.workspace.textDocuments.forEach(doc => {
-			if (doc.languageId === LANGUAGE_ID) {
-				triggerUpdateDiagnostics(doc);
-			}
-		});
 		outlineProvider.refresh();
 	};
 
@@ -483,19 +452,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
 		outputChannel.appendLine(localize('debug.context.title', '--- Context Info ---'));
 		outputChannel.appendLine(localize('debug.context.file', 'File: {0}', document.uri.fsPath));
-        // 增加文件类型调试信息
         outputChannel.appendLine(`File Type: ${fileTypeManager.getFileType(document.uri)}`);
 		outputChannel.appendLine(localize('debug.context.position', 'Cursor Position: Line {0}, Character {1}\n', position.line + 1, position.character + 1));
 
-		let currentSectionName: string | null = null;
-		for (let i = position.line; i >= 0; i--) {
-			const lineText = document.lineAt(i).text.trim();
-			const match = lineText.match(/^\s*\[([^\]:]+)/);
-			if (match) {
-				currentSectionName = match[1].trim();
-				break;
-			}
-		}
+		const currentSectionName = iniManager.getSectionNameAtLine(document.uri.fsPath, position.line);
 
 		if (!currentSectionName) {
 			outputChannel.appendLine(localize('debug.context.noSection', 'Error: Cursor is not within a valid section.'));
@@ -526,120 +486,8 @@ export async function activate(context: vscode.ExtensionContext) {
 		outputChannel.show();
 	}));
 
-	const diagnosticDebounceTimers = new Map<string, NodeJS.Timeout>();
-
-	const triggerUpdateDiagnostics = (document: vscode.TextDocument) => {
-		if (isIndexing) { return; } // 索引期间不进行诊断
-		const documentUriString = document.uri.toString();
-		if (diagnosticDebounceTimers.has(documentUriString)) {
-			clearTimeout(diagnosticDebounceTimers.get(documentUriString)!);
-		}
-
-		diagnosticDebounceTimers.set(documentUriString, setTimeout(() => {
-			diagnosticDebounceTimers.delete(documentUriString);
-			setTimeout(() => updateDiagnostics(document), 0);
-		}, 300));
-	};
-
-    const updateDiagnostics = async (document: vscode.TextDocument) => {
-        if (document.languageId !== LANGUAGE_ID || document.isClosed) {
-            return;
-        }
-
-        isDiagnosing = true;
-        updateMainStatus(); 
-
-        try {
-            const config = vscode.workspace.getConfiguration('ra2-ini-intellisense.diagnostics');
-            
-            // 显式转换为字符串数组，防止 Set 中混入非字符串类型导致匹配失败
-            const rawDisableConfig = config.get<string[]>('disable', []);
-            const disabledErrorCodes = new Set<string>(rawDisableConfig.map(c => String(c)));
-
-            // 读取新配置 severity
-            const severityConfig = config.get<{[key: string]: string}>('severity', {});
-            const severityOverrides = new Map<string, vscode.DiagnosticSeverity | null>();
-            
-            // 简单的辅助函数放在这里或者外部均可
-            const parseSeverity = (level: string): vscode.DiagnosticSeverity | null => {
-                switch (level.toLowerCase()) {
-                    case 'error': return vscode.DiagnosticSeverity.Error;
-                    case 'warning': return vscode.DiagnosticSeverity.Warning;
-                    case 'information': return vscode.DiagnosticSeverity.Information;
-                    case 'hint': return vscode.DiagnosticSeverity.Hint;
-                    case 'none': return null;
-                    default: return null; // 无法识别的配置，不做处理（保持原样）
-                }
-            };
-
-            for (const [code, level] of Object.entries(severityConfig)) {
-                const severity = parseSeverity(level);
-                if (severity !== undefined) { // 只存入有效值（包含 null）
-                     severityOverrides.set(code, severity);
-                }
-            }
-
-            const applyLegacySwitch = (configKey: string, errorCode: string) => {
-                if (config.get<boolean>(configKey) === false) {
-                    severityOverrides.set(errorCode, null);
-                }
-            };
-
-            // 映射旧的布尔配置到新的 Severity 系统
-            applyLegacySwitch('leadingWhitespace', 'STYLE-101');
-            applyLegacySwitch('spaceBeforeEquals', 'STYLE-102');
-            applyLegacySwitch('spaceAfterEquals', 'STYLE-103');
-            applyLegacySwitch('spaceAfterComment', 'STYLE-105');
-			
-            const context = {
-                document,
-                schemaManager,
-                iniManager,
-                config,
-                disabledErrorCodes,
-                severityOverrides,
-                outputChannel
-            };
-
-            await new Promise(resolve => setTimeout(resolve, 0));
-            
-            const externalDiagnostics = (diagnostics.get(document.uri) || []).filter(d => d.source === 'INI Validator');
-            const internalDiagnostics = diagnosticEngine.analyze(context);
-
-            diagnostics.set(document.uri, [...externalDiagnostics, ...internalDiagnostics]);
-        } catch (e) {
-            console.error(e);
-            outputChannel.appendLine(`[Error] Diagnostic failed: ${e}`);
-        } finally {
-            isDiagnosing = false;
-            updateMainStatus(); 
-        }
-    };
-
-    vscode.workspace.onDidChangeTextDocument(async event => {
-		if (event.document.languageId === LANGUAGE_ID) {
-			await iniManager.updateFile(event.document.uri, event.document.getText());
-			triggerUpdateDiagnostics(event.document);
-		}
-	});
-
-    vscode.workspace.onDidOpenTextDocument(document => {
-		if (document.languageId === LANGUAGE_ID) {
-			iniManager.updateFile(document.uri, document.getText()).then(() => {
-				triggerUpdateDiagnostics(document);
-			});
-		}
-	});
-    vscode.workspace.onDidCloseTextDocument(document => {
-		diagnostics.delete(document.uri);
-	});
-
-    vscode.workspace.textDocuments.forEach(doc => {
-		if (doc.languageId === LANGUAGE_ID) {
-			triggerUpdateDiagnostics(doc);
-		}
-	});
-
+    // 剩下的 Provider 注册逻辑（Rename, CodeAction, Definition...）不需要修改，
+    // 因为它们调用的 INIManager API 已经适配兼容。
 	context.subscriptions.push(
 		vscode.languages.registerRenameProvider(selector, new IniRenameProvider(iniManager)),
 		vscode.languages.registerCodeActionsProvider(selector, new IniCodeActionProvider(iniManager, schemaManager), {
@@ -652,11 +500,10 @@ export async function activate(context: vscode.ExtensionContext) {
 			async provideDefinition(document, position, token) {
 				if (isIndexing) { return []; }
 				const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
-				if (!wordRange) {
-					return [];
-				}
+				if (!wordRange) { return []; }
 				const word = document.getText(wordRange);
 
+                // 优先查找节定义
 				const lineInCurrentFile = iniManager.findSectionInContent(document.getText(), word);
 				if (lineInCurrentFile !== null) {
 					return new vscode.Location(document.uri, new vscode.Position(lineInCurrentFile, 0));
@@ -666,7 +513,6 @@ export async function activate(context: vscode.ExtensionContext) {
 				if (sectionLocations.length > 0) {
 					return sectionLocations;
 				}
-				
 				return [];
 			}
 		}),
@@ -677,35 +523,29 @@ export async function activate(context: vscode.ExtensionContext) {
 				const lineText = line.text;
 				const equalsIndex = lineText.indexOf('=');
 
+                // Hover on Section Name
 				if (equalsIndex === -1) { 
 					const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_.-]+/);
 					if (!wordRange) {return null;}
 
 					const word = document.getText(wordRange);
-					const sectionInfos = iniManager.findSection(word);
-					if (sectionInfos.length > 0) {
-						const commentText = iniManager.getSectionComment(sectionInfos[0].content, word);
-						if (commentText) {
-							return new vscode.Hover(new vscode.MarkdownString(commentText), wordRange);
-						}
-					}
+                    const secDoc = iniManager.getDocument(document.uri.fsPath); // 假设同文件
+                    if (secDoc) {
+                        const commentText = iniManager.getSectionComment(secDoc.content, word);
+                        if (commentText) {
+                            return new vscode.Hover(new vscode.MarkdownString(commentText), wordRange);
+                        }
+                    }
 					return null;
 				}
 
+                // Hover on Key
 				const keyPart = lineText.substring(0, equalsIndex).trim();
 				const keyRange = new vscode.Range(position.line, line.firstNonWhitespaceCharacterIndex, position.line, equalsIndex);
 
 				if (!keyRange.contains(position)) {return null;}
 
-				let currentSectionName: string | null = null;
-				for (let i = position.line; i >= 0; i--) {
-					const searchLineText = document.lineAt(i).text.trim();
-					const match = searchLineText.match(/^\s*\[([^\]:]+)/);
-					if (match) {
-						currentSectionName = match[1].trim();
-						break;
-					}
-				}
+				const currentSectionName = iniManager.getSectionNameAtLine(document.uri.fsPath, position.line);
 				if (!currentSectionName) {return null;}
 		
 				const markdown = new vscode.MarkdownString("", true);
@@ -740,7 +580,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 const currentFileType = fileTypeManager.getFileType(document.uri);
 				const parentName = iniManager.getInheritance(currentSectionName, currentFileType);
 				if (parentName) {
-                    // 传入当前文件的类型以进行隔离
                     const currentFileType = fileTypeManager.getFileType(document.uri);
 					const parentKeyInfo = iniManager.findKeyLocationRecursive(parentName, keyPart, currentFileType); 
 				
@@ -778,15 +617,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				const equalsIndex = line.text.indexOf('=');
 				const isKeyCompletion = equalsIndex === -1 || position.character <= equalsIndex;
 
-				let currentSectionName: string | null = null;
-				for (let i = position.line; i >= 0; i--) {
-					const lineText = document.lineAt(i).text.trim();
-					const match = lineText.match(/^\s*\[([^\]:]+)/);
-					if (match) {
-						currentSectionName = match[1].trim();
-						break;
-					}
-				}
+				const currentSectionName = iniManager.getSectionNameAtLine(document.uri.fsPath, position.line);
 				if (!currentSectionName) {return new vscode.CompletionList([], false);}
 		
 				const typeName = iniManager.getTypeForSection(currentSectionName);
@@ -800,7 +631,6 @@ export async function activate(context: vscode.ExtensionContext) {
 			
 					const items = Array.from(keys.entries())
                         .filter(([key, propDef]) => {
-                             // 如果字典定义了文件类型，且当前文件类型已知，且不匹配，则不显示该补全
                              if (propDef.fileType && currentFileType !== 'INI' && propDef.fileType !== currentFileType) {
                                  return false;
                              }
@@ -882,15 +712,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					const equalsIndex = line.text.indexOf('=');
 					if (equalsIndex === -1) {continue;}
 
-					let currentSectionName: string | null = null;
-					for (let j = i; j >= 0; j--) {
-						const lineText = document.lineAt(j).text.trim();
-						const match = lineText.match(/^\s*\[([^\]:]+)/);
-						if (match) {
-							currentSectionName = match[1].trim();
-							break;
-						}
-					}
+					const currentSectionName = iniManager.getSectionNameAtLine(document.uri.fsPath, i);
 					if (!currentSectionName) {continue;}
 					
 					const currentKey = line.text.substring(0, equalsIndex).trim();
@@ -946,40 +768,24 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 		vscode.languages.registerFoldingRangeProvider(selector, {
 			provideFoldingRanges(document, context, token) {
-				const result = [];
-				const sectionRegex = /^\s*\[([^\]]+)\]/;
-				let prevSecName = null;
-				let prevSecLineStart = 0;
-				let prevSecLineEnd = null;
-
-				for (let line = 0; line < document.lineCount; line++) {
-					const { text } = document.lineAt(line);
-					const secMatched = text.match(sectionRegex);
-					if (secMatched) {
-						if (prevSecName !== null) {
-							prevSecLineEnd = line - 1;
-							if (prevSecLineEnd > prevSecLineStart) {
-								result.push(new vscode.FoldingRange(prevSecLineStart, prevSecLineEnd, vscode.FoldingRangeKind.Region));
-							}
-						}
-						prevSecName = secMatched[1];
-						prevSecLineStart = line;
-					}
-				}
-
-				if (prevSecName !== null) {
-					prevSecLineEnd = document.lineCount - 1;
-					if (prevSecLineEnd > prevSecLineStart) {
-						result.push(new vscode.FoldingRange(prevSecLineStart, prevSecLineEnd, vscode.FoldingRangeKind.Region));
-					}
-				}
-				return result;
+                // 使用新模型极速生成折叠范围
+                const doc = iniManager.getDocument(document.uri.fsPath);
+                if (!doc) { return []; }
+                
+                return doc.sections.map(sec => {
+                    // 仅当范围跨越多行时才折叠
+                    if (sec.endLine > sec.startLine) {
+                        return new vscode.FoldingRange(sec.startLine, sec.endLine, vscode.FoldingRangeKind.Region);
+                    }
+                    return null;
+                }).filter(r => r !== null) as vscode.FoldingRange[];
 			}
 		}),
 	);
+	promptForInitialSetup();
 
-	// 在扩展激活后，检查并提示进行初始配置
-	async function promptForInitialSetup() {
+    // 确保在激活时初始化
+    async function promptForInitialSetup() {
 		const config = vscode.workspace.getConfiguration('ra2-ini-intellisense');
 		const projectRoot = getProjectRoot();
         const dictPath = config.get<string>('schemaFilePath');
@@ -995,7 +801,6 @@ export async function activate(context: vscode.ExtensionContext) {
             if (!projectRoot) {
                 message = localize('prompt.configureII.message.root', 'Welcome to INI IntelliSense! Please set your Mod project root directory to enable all features.');
             } else {
-                // 如果只缺字典，提供一键自动配置
                 message = localize('prompt.configureII.message.dict', 'INI Dictionary is missing. Would you like to download and configure it automatically?');
                 quickAction = localize('prompt.configureII.action.autoConfig', 'Auto Configure');
             }
@@ -1004,9 +809,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			const selection = await vscode.window.showInformationMessage(message, ...items);
 
             if (selection === quickAction && quickAction) {
-                // 调用服务进行下载
                 await dictionaryService.downloadAndConfigure();
-                
                 await loadSchemaFromConfiguration(); 
                 updateMainStatus();
             } else if (selection === openWizardAction) {
@@ -1016,15 +819,8 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		}
 	}
-
-	// 在激活流程的最后调用这个函数
-	promptForInitialSetup();
-
 }
 
-/**
- * 扩展的停用函数，用于清理资源。
- */
 export function deactivate() {
-	diagnostics.dispose();
+    // 这里的清理工作由 subscriptions 自动处理
 }

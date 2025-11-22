@@ -91,7 +91,7 @@ function validateValue(value: string, valueType: string, context: RuleContext, v
         }
 
         case ValueTypeCategory.Section:
-            if (iniManager.findSection(value) === null) {
+            if (iniManager.findSectionLocations(value).length === 0) {
                 return createError(localize('diag.logic.undefinedSection', 'Definition for section "[{0}]" not found in the project.', value), ErrorCode.LOGIC_UNDEFINED_SECTION_REFERENCE);
             }
             return [];
@@ -113,10 +113,11 @@ const checkKeyValueTypes: ValidationRule = (context: RuleContext): IniDiagnostic
     const valueString = kvMatch[2].trim();
     
     let valueType: string | undefined;
+    // currentSection.keys 是 Map<string, PropertyDefinition>
     for (const [k, v] of currentSection.keys.entries()) {
         if (k.toLowerCase() === key.toLowerCase()) {
-            const propDef = v as any; 
-            valueType = propDef.type || (typeof propDef === 'string' ? propDef : 'string');
+            // 适配 v 可能是对象的情况
+            valueType = v.type;
             break;
         }
     }

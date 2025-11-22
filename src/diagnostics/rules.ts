@@ -1,7 +1,21 @@
 // src/diagnostics/rules.ts
 import * as vscode from 'vscode';
 import { IniDiagnostic } from './diagnostic';
-import { DiagnosticContext } from './engine';
+import { SchemaManager } from '../schema-manager';
+import { INIManager } from '../parser';
+
+/**
+ * 诊断上下文基础部分
+ */
+export interface DiagnosticContext {
+    document: vscode.TextDocument;
+    schemaManager: SchemaManager;
+    iniManager: INIManager;
+    config: vscode.WorkspaceConfiguration;
+    disabledErrorCodes: Set<string>;
+    severityOverrides: Map<string, vscode.DiagnosticSeverity | null>;
+    outputChannel: vscode.OutputChannel;
+}
 
 /**
  * 验证规则执行的上下文，包含当前行的详细信息。
